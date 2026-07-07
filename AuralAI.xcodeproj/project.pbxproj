@@ -404,7 +404,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AuralAI Dev";
 				INFOPLIST_KEY_CFBundleName = "AuralAI Dev";
-				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "AuralAI needs permission to simulate keyboard events to copy selected text from other applications.";
 				INFOPLIST_KEY_NSAppleScriptEnabled = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -437,7 +437,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = AuralAI;
 				INFOPLIST_KEY_CFBundleName = AuralAI;
-				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "AuralAI needs permission to simulate keyboard events to copy selected text from other applications.";
 				INFOPLIST_KEY_NSAppleScriptEnabled = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
