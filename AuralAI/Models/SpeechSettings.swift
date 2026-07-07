@@ -107,7 +107,7 @@ class SpeechSettings: ObservableObject {
         Self.migrateLegacyDefaultsIfNeeded(using: defaults)
 
         // Load saved settings or use defaults
-        self.voiceIdentifier = defaults.string(forKey: Keys.voiceIdentifier)
+        self.voiceIdentifier = defaults.string(forKey: Keys.voiceIdentifier) ?? Self.defaultVoiceIdentifier
         self.rate = defaults.object(forKey: Keys.rate) as? Float ?? AVSpeechUtteranceDefaultSpeechRate
         self.pitch = defaults.object(forKey: Keys.pitch) as? Float ?? 1.0
         self.languageRawValue = LanguageOption(rawValue: defaults.string(forKey: Keys.language) ?? "")?.rawValue ?? LanguageOption.english.rawValue
@@ -157,9 +157,13 @@ class SpeechSettings: ObservableObject {
             ?? AVSpeechSynthesisVoice()
     }
 
+    static var defaultVoiceIdentifier: String? {
+        preferredDefaultEnglishVoice()?.identifier
+    }
+
     /// Reset all settings to defaults
     func resetToDefaults() {
-        voiceIdentifier = nil
+        voiceIdentifier = Self.defaultVoiceIdentifier
         rate = AVSpeechUtteranceDefaultSpeechRate
         pitch = 1.0
         language = .english
@@ -234,6 +238,11 @@ class SpeechSettings: ObservableObject {
         keyCodeMap[normalizedHotkeyKey(from: key)]
     }
 
+    static func supportedHotkeyKey(from key: String) -> String? {
+        let normalized = normalizedHotkeyKey(from: key)
+        return keyCodeMap[normalized] == nil ? nil : normalized
+    }
+
     private static func normalizedHotkeyKey(from key: String) -> String {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard let first = trimmed.first else { return "S" }
@@ -250,7 +259,32 @@ class SpeechSettings: ObservableObject {
     ]
 
     static func preferredDefaultEnglishVoice() -> AVSpeechSynthesisVoice? {
-        englishVoicesSorted().first
+        if let voice = preferredNamedDefaultVoice() {
+            return voice
+        }
+
+        return englishVoicesSorted().first
+    }
+
+    private static func preferredNamedDefaultVoice() -> AVSpeechSynthesisVoice? {
+        let preferredNames = ["samantha", "ava", "nicky", "allison", "susan", "daniel", "karen"]
+        let voices = allVoices().filter { $0.language.lowercased().hasPrefix("en") }
+
+        for name in preferredNames {
+            if let voice = voices.first(where: {
+                $0.language.lowercased() == "en-us" && $0.name.lowercased() == name
+            }) {
+                return voice
+            }
+        }
+
+        for name in preferredNames {
+            if let voice = voices.first(where: { $0.name.lowercased() == name }) {
+                return voice
+            }
+        }
+
+        return nil
     }
 
     private static func englishVoicesSorted() -> [AVSpeechSynthesisVoice] {
@@ -293,8 +327,18 @@ class SpeechSettings: ObservableObject {
         }
 
         let name = voice.name.lowercased()
-        if name.contains("siri") {
-            score += 20
+        let normalVoiceNames = ["samantha", "ava", "nicky", "allison", "susan", "daniel", "karen"]
+        if normalVoiceNames.contains(name) {
+            score += 250
+        }
+
+        let noveltyVoiceNames = [
+            "albert", "bad news", "bahh", "bells", "boing", "bubbles", "cellos", "wobble",
+            "fred", "good news", "jester", "junior", "kathy", "organ", "superstar",
+            "ralph", "trinoids", "whisper", "zarvox"
+        ]
+        if noveltyVoiceNames.contains(name) || voice.identifier.lowercased().contains("eloquence") {
+            score -= 500
         }
 
         return score

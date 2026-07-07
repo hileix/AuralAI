@@ -16,6 +16,7 @@ struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var settings = SpeechSettings.shared
+    @StateObject private var grammarSettings = GrammarSettings.shared
     @StateObject private var ttsService = TTSService.shared
 
     @State private var testText = "This is a test of the speech settings."
@@ -28,12 +29,24 @@ struct SettingsView: View {
     @State private var hotkeyInput: String
     @State private var initialSettingsSnapshot: SpeechSettings.CodableSettings
     @State private var lastPreviewedVoiceIdentifier: String?
+    @State private var draftGrammarPrompt: String
+    @State private var draftGrammarModel: String
+    @State private var draftGrammarBaseURL: String
+    @State private var draftGrammarAPIKey: String
+    @State private var draftGrammarAPIModeRawValue: String
+    @State private var draftGrammarMaxTokens: Int
+    @State private var draftGrammarHotkeyKey: String
+    @State private var draftGrammarHotkeyModifiersRawValue: Int
+    @State private var grammarHotkeyInput: String
+    @State private var initialGrammarSettingsSnapshot: GrammarSettings.CodableSettings
+    @State private var validationMessage: String?
 
     let onDone: (() -> Void)?
 
     init(onDone: (() -> Void)? = nil) {
         self.onDone = onDone
         let currentSettings = SpeechSettings.shared.codable
+        let currentGrammarSettings = GrammarSettings.shared.codable
         _draftVoiceIdentifier = State(initialValue: currentSettings.voiceIdentifier)
         _draftRate = State(initialValue: currentSettings.rate)
         _draftPitch = State(initialValue: currentSettings.pitch)
@@ -43,6 +56,16 @@ struct SettingsView: View {
         _hotkeyInput = State(initialValue: currentSettings.hotkeyKey)
         _initialSettingsSnapshot = State(initialValue: currentSettings)
         _lastPreviewedVoiceIdentifier = State(initialValue: currentSettings.voiceIdentifier)
+        _draftGrammarPrompt = State(initialValue: currentGrammarSettings.systemPrompt)
+        _draftGrammarModel = State(initialValue: currentGrammarSettings.modelName)
+        _draftGrammarBaseURL = State(initialValue: currentGrammarSettings.baseURL)
+        _draftGrammarAPIKey = State(initialValue: currentGrammarSettings.apiKey)
+        _draftGrammarAPIModeRawValue = State(initialValue: currentGrammarSettings.apiMode)
+        _draftGrammarMaxTokens = State(initialValue: currentGrammarSettings.maxTokens)
+        _draftGrammarHotkeyKey = State(initialValue: currentGrammarSettings.hotkeyKey)
+        _draftGrammarHotkeyModifiersRawValue = State(initialValue: currentGrammarSettings.hotkeyModifiers)
+        _grammarHotkeyInput = State(initialValue: currentGrammarSettings.hotkeyKey)
+        _initialGrammarSettingsSnapshot = State(initialValue: currentGrammarSettings)
     }
 
     var body: some View {
@@ -76,8 +99,16 @@ struct SettingsView: View {
     }
 
     private func saveChanges() {
+        guard !hasDuplicateHotkeys else {
+            validationMessage = copy.duplicateShortcutMessage
+            return
+        }
+
         settings.update(from: draftSettings)
+        grammarSettings.update(from: draftGrammarSettings)
         initialSettingsSnapshot = draftSettings
+        initialGrammarSettingsSnapshot = draftGrammarSettings
+        validationMessage = nil
     }
 
     private func closeView() {
@@ -99,8 +130,26 @@ struct SettingsView: View {
         )
     }
 
+    private var draftGrammarSettings: GrammarSettings.CodableSettings {
+        GrammarSettings.CodableSettings(
+            systemPrompt: draftGrammarPrompt,
+            maxTokens: draftGrammarMaxTokens,
+            modelName: draftGrammarModel,
+            baseURL: draftGrammarBaseURL,
+            apiKey: draftGrammarAPIKey,
+            apiMode: draftGrammarAPIModeRawValue,
+            hotkeyKey: draftGrammarHotkeyKey,
+            hotkeyModifiers: draftGrammarHotkeyModifiersRawValue
+        )
+    }
+
     private var hasChanges: Bool {
-        draftSettings != initialSettingsSnapshot
+        draftSettings != initialSettingsSnapshot || draftGrammarSettings != initialGrammarSettingsSnapshot
+    }
+
+    private var hasDuplicateHotkeys: Bool {
+        draftHotkeyKey.caseInsensitiveCompare(draftGrammarHotkeyKey) == .orderedSame
+            && draftHotkeyModifiersRawValue == draftGrammarHotkeyModifiersRawValue
     }
 
     private var previewVoice: AVSpeechSynthesisVoice {
@@ -150,14 +199,41 @@ struct SettingsView: View {
         ]
     }
 
+    private var grammarModifierOptions: [(label: String, value: Int)] {
+        [
+            (copy.controlLabel, GrammarSettings.HotkeyModifier.control.rawValue),
+            (copy.optionLabel, GrammarSettings.HotkeyModifier.option.rawValue),
+            (copy.commandLabel, GrammarSettings.HotkeyModifier.command.rawValue),
+            (copy.shiftLabel, GrammarSettings.HotkeyModifier.shift.rawValue),
+            ("\(copy.controlLabel) + \(copy.optionLabel)", GrammarSettings.HotkeyModifier([.control, .option]).rawValue),
+            ("\(copy.controlLabel) + \(copy.commandLabel)", GrammarSettings.HotkeyModifier([.control, .command]).rawValue),
+            ("\(copy.controlLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.control, .shift]).rawValue),
+            ("\(copy.optionLabel) + \(copy.commandLabel)", GrammarSettings.HotkeyModifier([.option, .command]).rawValue),
+            ("\(copy.optionLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.option, .shift]).rawValue),
+            ("\(copy.commandLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.command, .shift]).rawValue),
+            ("\(copy.controlLabel) + \(copy.optionLabel) + \(copy.commandLabel)", GrammarSettings.HotkeyModifier([.control, .option, .command]).rawValue),
+            ("\(copy.controlLabel) + \(copy.optionLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.control, .option, .shift]).rawValue),
+            ("\(copy.controlLabel) + \(copy.commandLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.control, .command, .shift]).rawValue),
+            ("\(copy.optionLabel) + \(copy.commandLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.option, .command, .shift]).rawValue),
+            ("\(copy.controlLabel) + \(copy.optionLabel) + \(copy.commandLabel) + \(copy.shiftLabel)", GrammarSettings.HotkeyModifier([.control, .option, .command, .shift]).rawValue)
+        ]
+    }
+
+    private var draftGrammarHotkeyDisplayString: String {
+        GrammarSettings.displayString(
+            key: draftGrammarHotkeyKey,
+            modifiers: GrammarSettings.HotkeyModifier(rawValue: draftGrammarHotkeyModifiersRawValue)
+        )
+    }
+
     private var settingsForm: some View {
         Form {
             Section(copy.shortcutSection) {
                 TextField(copy.shortcutKeyLabel, text: $hotkeyInput)
                     .onChange(of: hotkeyInput) { _, newValue in
-                        let normalized = String(newValue.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().prefix(1))
+                        let normalized = SpeechSettings.supportedHotkeyKey(from: newValue) ?? "S"
                         hotkeyInput = normalized
-                        draftHotkeyKey = normalized.isEmpty ? "S" : normalized
+                        draftHotkeyKey = normalized
                     }
 
                 Picker(copy.modifierLabel, selection: $draftHotkeyModifiersRawValue) {
@@ -249,7 +325,7 @@ struct SettingsView: View {
 
                 Button(action: {
                     let defaultSettings = SpeechSettings.CodableSettings(
-                        voiceIdentifier: nil,
+                        voiceIdentifier: SpeechSettings.defaultVoiceIdentifier,
                         rate: AVSpeechUtteranceDefaultSpeechRate,
                         pitch: 1.0,
                         language: SpeechSettings.LanguageOption.english.rawValue,
@@ -267,6 +343,87 @@ struct SettingsView: View {
                     HStack {
                         Image(systemName: "arrow.counterclockwise")
                         Text(copy.resetDefaultsButton)
+                    }
+                    .foregroundColor(.red)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private var grammarSettingsForm: some View {
+        Form {
+            Section(copy.grammarShortcutSection) {
+                TextField(copy.shortcutKeyLabel, text: $grammarHotkeyInput)
+                    .onChange(of: grammarHotkeyInput) { _, newValue in
+                        let normalized = GrammarSettings.supportedHotkeyKey(from: newValue) ?? GrammarSettings.defaultHotkeyKey
+                        grammarHotkeyInput = normalized
+                        draftGrammarHotkeyKey = normalized
+                    }
+
+                Picker(copy.modifierLabel, selection: $draftGrammarHotkeyModifiersRawValue) {
+                    ForEach(grammarModifierOptions, id: \.value) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+
+                HStack {
+                    Text(copy.currentShortcutLabel)
+                    Spacer()
+                    Text(draftGrammarHotkeyDisplayString)
+                        .foregroundColor(hasDuplicateHotkeys ? .red : .secondary)
+                }
+
+                if hasDuplicateHotkeys {
+                    Text(copy.duplicateShortcutMessage)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                }
+            }
+
+            Section(copy.modelSection) {
+                Picker(copy.apiModeLabel, selection: $draftGrammarAPIModeRawValue) {
+                    ForEach(GrammarSettings.APIMode.allCases) { mode in
+                        Text(localizedTitle(for: mode)).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                TextField(copy.modelLabel, text: $draftGrammarModel)
+                TextField(copy.baseURLLabel, text: $draftGrammarBaseURL)
+                SecureField(copy.apiKeyLabel, text: $draftGrammarAPIKey)
+
+                HStack {
+                    Text(copy.maxTokensLabel)
+                    Spacer()
+                    TextField("1024", value: $draftGrammarMaxTokens, format: .number)
+                        .frame(width: 90)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+
+            Section(copy.systemPromptSection) {
+                TextEditor(text: $draftGrammarPrompt)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 220)
+            }
+
+            Section {
+                Button(action: {
+                    let defaultSettings = GrammarSettings.CodableSettings.defaults
+                    draftGrammarPrompt = defaultSettings.systemPrompt
+                    draftGrammarModel = defaultSettings.modelName
+                    draftGrammarBaseURL = defaultSettings.baseURL
+                    draftGrammarAPIKey = defaultSettings.apiKey
+                    draftGrammarAPIModeRawValue = defaultSettings.apiMode
+                    draftGrammarMaxTokens = defaultSettings.maxTokens
+                    draftGrammarHotkeyKey = defaultSettings.hotkeyKey
+                    draftGrammarHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
+                    grammarHotkeyInput = defaultSettings.hotkeyKey
+                }) {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise")
+                        Text(copy.resetGrammarDefaultsButton)
                     }
                     .foregroundColor(.red)
                     .frame(maxWidth: .infinity)
@@ -294,12 +451,32 @@ struct SettingsView: View {
 
             Divider()
 
-            settingsForm
-                .formStyle(.grouped)
-                .scrollContentBackground(.hidden)
+            TabView {
+                settingsForm
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
+                    .tabItem {
+                        Text(copy.speechTab)
+                    }
+
+                grammarSettingsForm
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
+                    .tabItem {
+                        Text(copy.grammarTab)
+                    }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        .alert(copy.settingsTitle, isPresented: Binding(
+            get: { validationMessage != nil },
+            set: { if !$0 { validationMessage = nil } }
+        )) {
+            Button(copy.okButton, role: .cancel) {}
+        } message: {
+            Text(validationMessage ?? "")
+        }
     }
     #endif
 
@@ -336,7 +513,20 @@ struct SettingsView: View {
                 pitchLabel: "Pitch",
                 pitchHelp: "Adjust the pitch of speech (lower ← → higher)",
                 testSpeechButton: "Test Speech",
-                resetDefaultsButton: "Reset to Defaults"
+                resetDefaultsButton: "Reset to Defaults",
+                speechTab: "Speech",
+                grammarTab: "Grammar",
+                grammarShortcutSection: "Grammar Shortcut",
+                modelSection: "Model",
+                apiModeLabel: "API Mode",
+                modelLabel: "Model",
+                baseURLLabel: "Base URL",
+                apiKeyLabel: "API Key",
+                maxTokensLabel: "Max Tokens",
+                systemPromptSection: "System Prompt",
+                resetGrammarDefaultsButton: "Reset Grammar Defaults",
+                duplicateShortcutMessage: "Speech and Grammar shortcuts must be different.",
+                okButton: "OK"
             )
         case .chinese:
             SettingsCopy(
@@ -365,7 +555,20 @@ struct SettingsView: View {
                 pitchLabel: "音调",
                 pitchHelp: "调整朗读音调（低 ← → 高）",
                 testSpeechButton: "测试朗读",
-                resetDefaultsButton: "恢复默认设置"
+                resetDefaultsButton: "恢复默认设置",
+                speechTab: "朗读",
+                grammarTab: "语法",
+                grammarShortcutSection: "语法快捷键",
+                modelSection: "模型",
+                apiModeLabel: "API 模式",
+                modelLabel: "模型",
+                baseURLLabel: "基础 URL",
+                apiKeyLabel: "API 密钥",
+                maxTokensLabel: "最大令牌数",
+                systemPromptSection: "系统提示词",
+                resetGrammarDefaultsButton: "恢复语法默认设置",
+                duplicateShortcutMessage: "朗读和语法快捷键不能相同。",
+                okButton: "好的"
             )
         }
     }
@@ -380,6 +583,20 @@ struct SettingsView: View {
                 return "英文"
             case .chinese:
                 return "中文"
+            }
+        }
+    }
+
+    private func localizedTitle(for mode: GrammarSettings.APIMode) -> String {
+        switch uiLanguage {
+        case .english:
+            return mode.title
+        case .chinese:
+            switch mode {
+            case .openAICompatible:
+                return "OpenAI 兼容"
+            case .direct:
+                return "直接 API"
             }
         }
     }
@@ -425,6 +642,19 @@ private struct SettingsCopy {
     let pitchHelp: String
     let testSpeechButton: String
     let resetDefaultsButton: String
+    let speechTab: String
+    let grammarTab: String
+    let grammarShortcutSection: String
+    let modelSection: String
+    let apiModeLabel: String
+    let modelLabel: String
+    let baseURLLabel: String
+    let apiKeyLabel: String
+    let maxTokensLabel: String
+    let systemPromptSection: String
+    let resetGrammarDefaultsButton: String
+    let duplicateShortcutMessage: String
+    let okButton: String
 }
 
 // MARK: - Preview

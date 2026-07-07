@@ -95,9 +95,14 @@ struct PersistenceController {
         let context = container.viewContext
         let fetchRequest: NSFetchRequest<NSFetchRequestResult> = SpeechHistory.fetchRequest()
         let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+        deleteRequest.resultType = .resultTypeObjectIDs
 
         do {
-            try context.execute(deleteRequest)
+            let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+            if let deletedObjectIDs = result?.result as? [NSManagedObjectID] {
+                let changes = [NSDeletedObjectsKey: deletedObjectIDs]
+                NSManagedObjectContext.mergeChanges(fromRemoteContextSave: changes, into: [context])
+            }
             try context.save()
         } catch {
             print("Error deleting speech history: \(error)")

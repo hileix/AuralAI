@@ -1,15 +1,18 @@
 # AuralAI
 
-AuralAI is a SwiftUI text-to-speech app built on top of AVFoundation.
+AuralAI is a SwiftUI menu bar app for text-to-speech and AI grammar improvement.
 
-It runs as a macOS menu bar app and reads the current selection with a global hotkey.
+It reads the current selection with global hotkeys: one for speaking text aloud and one for improving or translating text with a configured AI API.
 
 ## Current Features
 
 - Global hotkey on macOS for reading selected text
+- Separate grammar improvement hotkey, defaulting to `Ctrl+E`
 - Customizable shortcut key and modifier combination
 - English voice selection with live preview
 - Adjustable speech rate and pitch
+- AI settings for API mode, model, base URL, API key, max tokens, and system prompt
+- Selectable grammar/translation results that can be pasted back into the source app
 - Settings UI in English and Chinese
 - Explicit save flow in settings
 - Speech history stored with Core Data
@@ -20,21 +23,33 @@ AuralAI on macOS is a `MenuBarExtra` app.
 
 1. Launch the app.
 2. Open `Settings` from the menu bar.
-3. Choose the shortcut, language, voice, rate, and pitch.
+3. Choose the speech shortcut, language, voice, rate, and pitch.
 4. Click `Save` to persist changes.
 5. Select text in any app.
 6. Press the configured hotkey.
 
 When the hotkey is pressed, AuralAI simulates `Cmd+C`, reads the copied text from the pasteboard, and speaks it aloud.
 
+For grammar improvement:
+
+1. Open the `Grammar` tab in Settings.
+2. Enter the API mode, model, base URL, API key, max tokens, and system prompt.
+3. Click `Save`.
+4. Select text in any app.
+5. Press the grammar hotkey, defaulting to `Ctrl+E`.
+6. Choose one result from the popup to copy it to the pasteboard and paste it back into the source app.
+
 The app requires Accessibility permission on macOS so it can:
 
 - register a global hotkey
 - simulate `Cmd+C` to capture selected text
+- simulate `Cmd+V` to paste a selected grammar result
 
 ## Settings
 
-The settings window currently supports:
+The settings window has `Speech` and `Grammar` tabs.
+
+The Speech tab supports:
 
 - one-key shortcut input plus a modifier-combination picker
 - English or Chinese UI language
@@ -44,14 +59,22 @@ The settings window currently supports:
 - a `Test Speech` preview button
 - a `Reset to Defaults` action
 
+The Grammar tab supports:
+
+- grammar shortcut key and modifier combination
+- OpenAI-compatible or direct API mode
+- model, base URL, API key, max tokens, and system prompt
+- resetting grammar settings to defaults
+
 Changes in the settings window are edited as a draft and are only applied after clicking `Save`. Saving does not close the window.
 
 ## Data Storage
 
-Speech settings are stored in `UserDefaults`, using the app group suite when available:
+Speech settings are stored in `UserDefaults`:
 
-- app group: `group.com.yourteam.speakit`
 - keys: `voiceIdentifier`, `rate`, `pitch`, `language`, `hotkeyKey`, `hotkeyModifiers`
+
+Grammar settings are stored in `UserDefaults` with `grammar.`-prefixed keys, including `grammar.apiKey`. API keys stay local and should not be committed.
 
 Speech history is stored in Core Data.
 

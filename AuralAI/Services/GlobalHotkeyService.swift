@@ -14,9 +14,14 @@ import Combine
 class GlobalHotkeyService: ObservableObject {
     static let shared = GlobalHotkeyService()
 
+    private static let hotKeySignature = OSType(0x48544B59) // 'HTKY'
+    private static let hotKeyID = UInt32(1)
+
     private var eventHandler: EventHandlerRef?
     private var hotKeyRef: EventHotKeyRef?
     private var cancellables = Set<AnyCancellable>()
+    private var accessibilityRetryTimer: Timer?
+    private var didShowAccessibilityHelp = false
 
     var onHotkeyTriggered: (() -> Void)?
 
@@ -35,8 +40,10 @@ class GlobalHotkeyService: ObservableObject {
         guard AXIsProcessTrusted() else {
             print("Accessibility permissions not granted. Cannot register global hotkey.")
             requestAccessibilityPermissions()
+            startAccessibilityRetry()
             return
         }
+        stopAccessibilityRetry()
 
         guard let keyCode = SpeechSettings.keyCode(for: SpeechSettings.shared.hotkeyKey) else {
             print("Invalid hotkey key: \(SpeechSettings.shared.hotkeyKey)")
@@ -53,19 +60,48 @@ class GlobalHotkeyService: ObservableObject {
 
         // Install event handler
         if eventHandler == nil {
-            InstallEventHandler(GetApplicationEventTarget(), { (_, _, userData) -> OSStatus in
-                guard let userData = userData else { return OSStatus(eventNotHandledErr) }
+            let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { (_, event, userData) -> OSStatus in
+                guard let event = event, let userData = userData else { return OSStatus(eventNotHandledErr) }
+
+                var hotKeyID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+
+                guard status == noErr,
+                      hotKeyID.signature == GlobalHotkeyService.hotKeySignature,
+                      hotKeyID.id == GlobalHotkeyService.hotKeyID else {
+                    return OSStatus(eventNotHandledErr)
+                }
 
                 let service = Unmanaged<GlobalHotkeyService>.fromOpaque(userData).takeUnretainedValue()
                 service.handleHotkeyPress()
 
                 return noErr
             }, 1, &eventSpec, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
+
+            guard handlerStatus == noErr else {
+                eventHandler = nil
+                print("Failed to install hotkey event handler: \(handlerStatus)")
+                return
+            }
         }
 
         // Register the hotkey
-        let hotKeyID = EventHotKeyID(signature: OSType(0x48544B59), id: 1) // 'HTKY' signature
-        RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyID)
+        let registrationStatus = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+
+        guard registrationStatus == noErr, hotKeyRef != nil else {
+            hotKeyRef = nil
+            print("Failed to register global hotkey: \(registrationStatus)")
+            return
+        }
 
         print("Global hotkey registered: \(SpeechSettings.shared.hotkeyDisplayString)")
     }
@@ -95,6 +131,8 @@ class GlobalHotkeyService: ObservableObject {
 
         if !accessibilityEnabled {
             print("Requesting accessibility permissions...")
+            guard !didShowAccessibilityHelp else { return }
+            didShowAccessibilityHelp = true
 
             // Show alert to guide user
             DispatchQueue.main.async {
@@ -124,10 +162,10 @@ class GlobalHotkeyService: ObservableObject {
     }
 
     /// Simulate Cmd+C to copy selected text
-    func copySelectedText() {
+    func copySelectedText() -> Bool {
         guard hasAccessibilityPermissions() else {
             print("Cannot copy selected text: accessibility permissions not granted")
-            return
+            return false
         }
 
         // Create and post Cmd+C keyboard event
@@ -148,14 +186,44 @@ class GlobalHotkeyService: ObservableObject {
         // Key up: Command key
         let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)
 
+        guard let cmdDown = cmdDown,
+              let cDown = cDown,
+              let cUp = cUp,
+              let cmdUp = cmdUp else {
+            print("Failed to create keyboard events for Cmd+C")
+            return false
+        }
+
         // Post events
         let location = CGEventTapLocation.cghidEventTap
-        cmdDown?.post(tap: location)
-        cDown?.post(tap: location)
-        cUp?.post(tap: location)
-        cmdUp?.post(tap: location)
+        cmdDown.post(tap: location)
+        cDown.post(tap: location)
+        cUp.post(tap: location)
+        cmdUp.post(tap: location)
 
         print("Simulated Cmd+C to copy selected text")
+        return true
+    }
+
+    private func startAccessibilityRetry() {
+        guard accessibilityRetryTimer == nil else { return }
+
+        DispatchQueue.main.async {
+            guard self.accessibilityRetryTimer == nil else { return }
+
+            self.accessibilityRetryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+
+                if self.hasAccessibilityPermissions() {
+                    self.refreshRegistration()
+                }
+            }
+        }
+    }
+
+    private func stopAccessibilityRetry() {
+        accessibilityRetryTimer?.invalidate()
+        accessibilityRetryTimer = nil
     }
 
     private func observeSettings() {

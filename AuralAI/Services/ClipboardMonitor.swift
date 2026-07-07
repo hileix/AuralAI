@@ -61,6 +61,10 @@ class ClipboardMonitor: ObservableObject {
         return nil
     }
 
+    func currentChangeCount() -> Int {
+        pasteboard.changeCount
+    }
+
     /// Write text to clipboard
     func writeToClipboard(text: String) {
         pasteboard.clearContents()
