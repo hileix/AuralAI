@@ -56,6 +56,7 @@ final class AuralAIUITests: XCTestCase {
 
             let loadingStatus = app.descendants(matching: .any)["grammar.status.loading"]
             XCTAssertTrue(loadingStatus.waitForExistence(timeout: 3))
+            XCTAssertLessThanOrEqual(loadingStatus.frame.width, 40)
             addScreenshot(of: loadingStatus, named: "Grammar Loading - \(appearance)")
             app.terminate()
         }

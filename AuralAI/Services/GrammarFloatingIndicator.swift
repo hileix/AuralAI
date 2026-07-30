@@ -27,6 +27,7 @@ private class GrammarClickablePanel: NSPanel {
 final class GrammarFloatingIndicator {
     static let shared = GrammarFloatingIndicator()
 
+    private let loadingSize = NSSize(width: 32, height: 32)
     private let statusSize = NSSize(width: 268, height: 60)
     private var window: NSWindow?
     private var clickOutsideMonitor: Any?
@@ -44,7 +45,7 @@ final class GrammarFloatingIndicator {
             self.dismiss()
 
             self.anchorPoint = anchor
-            self.showStatus(GrammarStatusView(state: .loading), at: anchor)
+            self.showStatus(GrammarLoadingView(), size: self.loadingSize, at: anchor)
         }
     }
 
@@ -52,6 +53,7 @@ final class GrammarFloatingIndicator {
         DispatchQueue.main.async {
             self.showStatus(
                 GrammarStatusView(state: .success),
+                size: self.statusSize,
                 at: self.anchorPoint ?? NSEvent.mouseLocation
             )
             self.dismissAfterDelay()
@@ -62,6 +64,7 @@ final class GrammarFloatingIndicator {
         DispatchQueue.main.async {
             self.showStatus(
                 GrammarStatusView(state: .error),
+                size: self.statusSize,
                 at: self.anchorPoint ?? NSEvent.mouseLocation
             )
             self.dismissAfterDelay()
@@ -99,9 +102,9 @@ final class GrammarFloatingIndicator {
             let origin = self.positionedOrigin(anchor: anchor, size: contentSize)
 
             let panel = GrammarClickablePanel(contentRect: NSRect(origin: origin, size: contentSize))
-            panel.hasShadow = false
             panel.contentView = hostingView
             panel.orderFrontRegardless()
+            panel.invalidateShadow()
 
             self.window = panel
             self.anchorPoint = nil
@@ -115,21 +118,19 @@ final class GrammarFloatingIndicator {
         window = nil
     }
 
-    private func showStatus<V: View>(_ view: V, at anchor: NSPoint) {
+    private func showStatus<V: View>(_ view: V, size: NSSize, at anchor: NSPoint) {
         let hostingView = NSHostingView(rootView: view)
+        let frame = NSRect(origin: positionedOrigin(anchor: anchor, size: size), size: size)
 
         if let window {
             window.contentView = hostingView
-            window.setContentSize(statusSize)
+            window.setFrame(frame, display: true)
             window.orderFrontRegardless()
             return
         }
 
         let statusWindow = NSWindow(
-            contentRect: NSRect(
-                origin: positionedOrigin(anchor: anchor, size: statusSize),
-                size: statusSize
-            ),
+            contentRect: frame,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -203,9 +204,22 @@ final class GrammarFloatingIndicator {
     }
 }
 
+private struct GrammarLoadingView: View {
+    private var title: String { GrammarPopupCopy.current.improvingText }
+
+    var body: some View {
+        ProgressView()
+            .controlSize(.regular)
+            .tint(.accentColor)
+            .frame(width: 32, height: 32)
+            .shadow(color: .black.opacity(0.28), radius: 3, y: 1)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("grammar.status.loading")
+    }
+}
+
 private struct GrammarStatusView: View {
-    enum State {
-        case loading
+    enum State: Equatable {
         case success
         case error
     }
@@ -216,8 +230,6 @@ private struct GrammarStatusView: View {
 
     private var title: String {
         switch state {
-        case .loading:
-            return copy.improvingText
         case .success:
             return copy.appliedText
         case .error:
@@ -227,8 +239,6 @@ private struct GrammarStatusView: View {
 
     private var color: Color {
         switch state {
-        case .loading:
-            return .accentColor
         case .success:
             return .green
         case .error:
@@ -238,8 +248,6 @@ private struct GrammarStatusView: View {
 
     private var accessibilityIdentifier: String {
         switch state {
-        case .loading:
-            return "grammar.status.loading"
         case .success:
             return "grammar.status.success"
         case .error:
@@ -253,16 +261,11 @@ private struct GrammarStatusView: View {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(color.opacity(0.12))
 
-                switch state {
-                case .loading:
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(color)
-                case .success:
+                if state == .success {
                     Image(systemName: "checkmark")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(color)
-                case .error:
+                } else {
                     Image(systemName: "exclamationmark")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(color)
@@ -374,13 +377,12 @@ private struct GrammarResultsPopupView: View {
             }
         }
         .frame(width: 480, height: 500)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.11), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.16), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.24), radius: 18, y: 7)
     }
 }
 
