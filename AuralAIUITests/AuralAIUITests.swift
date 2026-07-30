@@ -23,12 +23,67 @@ final class AuralAIUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testSettingsTabs() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        let speechTab = app.buttons["settings.tab.speech"]
+        let grammarTab = app.buttons["settings.tab.grammar"]
+
+        XCTAssertTrue(speechTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(grammarTab.exists)
+
+        grammarTab.click()
+        XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 2))
+
+        let grammarScreenshot = XCTAttachment(screenshot: app.screenshot())
+        grammarScreenshot.name = "Grammar Settings"
+        grammarScreenshot.lifetime = .keepAlways
+        add(grammarScreenshot)
+
+        speechTab.click()
+        XCTAssertTrue(app.sliders.firstMatch.waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testGrammarLoadingPresentation() throws {
+        for appearance in ["Light", "Dark"] {
+            let app = XCUIApplication()
+            app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "loading"
+            app.launchEnvironment["AURALAI_UI_TEST_APPEARANCE"] = appearance.lowercased()
+            app.launchArguments += ["-AppleInterfaceStyle", appearance]
+            app.launch()
+
+            let loadingStatus = app.descendants(matching: .any)["grammar.status.loading"]
+            XCTAssertTrue(loadingStatus.waitForExistence(timeout: 3))
+            addScreenshot(of: loadingStatus, named: "Grammar Loading - \(appearance)")
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testGrammarResultsPresentation() throws {
+        for appearance in ["Light", "Dark"] {
+            let app = XCUIApplication()
+            app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
+            app.launchEnvironment["AURALAI_UI_TEST_APPEARANCE"] = appearance.lowercased()
+            app.launchArguments += ["-AppleInterfaceStyle", appearance]
+            app.launch()
+
+            let popup = app.dialogs.firstMatch
+            XCTAssertTrue(popup.waitForExistence(timeout: 3))
+            XCTAssertEqual(app.buttons.matching(identifier: "grammar.results.option.1").count, 1)
+            addScreenshot(of: popup, named: "Grammar Results - \(appearance)")
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    private func addScreenshot(of element: XCUIElement, named name: String) {
+        let screenshot = XCTAttachment(screenshot: element.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     @MainActor

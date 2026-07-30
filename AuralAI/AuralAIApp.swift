@@ -65,9 +65,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.openSettings()
         }
 
+        #if DEBUG
+        showGrammarUIPreviewIfNeeded()
+        #endif
+
         print("✅ AuralAI started. Press \(settings.hotkeyDisplayString) to speak selected text.")
         print("✅ Grammar improvement available with \(grammarSettings.hotkeyDisplayString).")
     }
+
+    #if DEBUG
+    private func showGrammarUIPreviewIfNeeded() {
+        guard let state = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_GRAMMAR_STATE"] else {
+            return
+        }
+
+        if let appearance = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_APPEARANCE"] {
+            NSApp.appearance = NSAppearance(
+                named: appearance == "dark" ? .darkAqua : .aqua
+            )
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let screenFrame = NSScreen.main?.visibleFrame ?? .zero
+            let anchor = NSPoint(x: screenFrame.midX, y: screenFrame.midY)
+
+            switch state {
+            case "loading":
+                self.grammarIndicator.showLoading(at: anchor)
+            case "results":
+                self.grammarIndicator.showResults(
+                    response: GrammarAIResponse(
+                        translation: "A focused interface makes everyday work feel effortless.",
+                        errors: "The original sentence needs an article and more natural word order.",
+                        options: [
+                            "A focused interface makes everyday work feel effortless.",
+                            "Thoughtful design makes routine work feel simple and natural.",
+                            "A clear, polished interface keeps daily tasks moving smoothly."
+                        ]
+                    ),
+                    at: anchor,
+                    onSelect: { _ in }
+                )
+            default:
+                break
+            }
+        }
+    }
+    #endif
 
     /// Setup global hotkey handler
     private func setupHotkeyHandler() {
@@ -189,14 +233,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let settingsView = SettingsView(onDone: { [weak self] in
                 self?.settingsWindow?.close()
             })
-                .frame(width: 620, height: 680)
+                .frame(minWidth: 720, minHeight: 620)
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
 
             let hostingController = NSHostingController(rootView: settingsView)
             let window = NSWindow(contentViewController: hostingController)
             window.title = "AuralAI Settings"
             window.styleMask = [.titled, .closable, .resizable]
-            window.setContentSize(NSSize(width: 620, height: 680))
+            window.setContentSize(NSSize(width: 820, height: 720))
+            window.minSize = NSSize(width: 720, height: 620)
             window.center()
             window.isReleasedWhenClosed = false
 

@@ -14,6 +14,13 @@ struct SettingsView: View {
         case chinese
     }
 
+    #if os(macOS)
+    private enum SettingsTab {
+        case speech
+        case grammar
+    }
+    #endif
+
     @Environment(\.dismiss) private var dismiss
     @StateObject private var settings = SpeechSettings.shared
     @StateObject private var grammarSettings = GrammarSettings.shared
@@ -40,6 +47,9 @@ struct SettingsView: View {
     @State private var grammarHotkeyInput: String
     @State private var initialGrammarSettingsSnapshot: GrammarSettings.CodableSettings
     @State private var validationMessage: String?
+    #if os(macOS)
+    @State private var selectedTab: SettingsTab = .speech
+    #endif
 
     let onDone: (() -> Void)?
 
@@ -109,6 +119,37 @@ struct SettingsView: View {
         initialSettingsSnapshot = draftSettings
         initialGrammarSettingsSnapshot = draftGrammarSettings
         validationMessage = nil
+    }
+
+    private func resetSpeechSettings() {
+        let defaultSettings = SpeechSettings.CodableSettings(
+            voiceIdentifier: SpeechSettings.defaultVoiceIdentifier,
+            rate: AVSpeechUtteranceDefaultSpeechRate,
+            pitch: 1.0,
+            language: SpeechSettings.LanguageOption.english.rawValue,
+            hotkeyKey: "S",
+            hotkeyModifiers: SpeechSettings.HotkeyModifier.default.rawValue
+        )
+        draftVoiceIdentifier = defaultSettings.voiceIdentifier
+        draftRate = defaultSettings.rate
+        draftPitch = defaultSettings.pitch
+        draftLanguageRawValue = defaultSettings.language
+        draftHotkeyKey = defaultSettings.hotkeyKey
+        draftHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
+        hotkeyInput = defaultSettings.hotkeyKey
+    }
+
+    private func resetGrammarSettings() {
+        let defaultSettings = GrammarSettings.CodableSettings.defaults
+        draftGrammarPrompt = defaultSettings.systemPrompt
+        draftGrammarModel = defaultSettings.modelName
+        draftGrammarBaseURL = defaultSettings.baseURL
+        draftGrammarAPIKey = defaultSettings.apiKey
+        draftGrammarAPIModeRawValue = defaultSettings.apiMode
+        draftGrammarMaxTokens = defaultSettings.maxTokens
+        draftGrammarHotkeyKey = defaultSettings.hotkeyKey
+        draftGrammarHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
+        grammarHotkeyInput = defaultSettings.hotkeyKey
     }
 
     private func closeView() {
@@ -324,21 +365,7 @@ struct SettingsView: View {
                 }
 
                 Button(action: {
-                    let defaultSettings = SpeechSettings.CodableSettings(
-                        voiceIdentifier: SpeechSettings.defaultVoiceIdentifier,
-                        rate: AVSpeechUtteranceDefaultSpeechRate,
-                        pitch: 1.0,
-                        language: SpeechSettings.LanguageOption.english.rawValue,
-                        hotkeyKey: "S",
-                        hotkeyModifiers: SpeechSettings.HotkeyModifier.default.rawValue
-                    )
-                    draftVoiceIdentifier = defaultSettings.voiceIdentifier
-                    draftRate = defaultSettings.rate
-                    draftPitch = defaultSettings.pitch
-                    draftLanguageRawValue = defaultSettings.language
-                    draftHotkeyKey = defaultSettings.hotkeyKey
-                    draftHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
-                    hotkeyInput = defaultSettings.hotkeyKey
+                    resetSpeechSettings()
                 }) {
                     HStack {
                         Image(systemName: "arrow.counterclockwise")
@@ -410,16 +437,7 @@ struct SettingsView: View {
 
             Section {
                 Button(action: {
-                    let defaultSettings = GrammarSettings.CodableSettings.defaults
-                    draftGrammarPrompt = defaultSettings.systemPrompt
-                    draftGrammarModel = defaultSettings.modelName
-                    draftGrammarBaseURL = defaultSettings.baseURL
-                    draftGrammarAPIKey = defaultSettings.apiKey
-                    draftGrammarAPIModeRawValue = defaultSettings.apiMode
-                    draftGrammarMaxTokens = defaultSettings.maxTokens
-                    draftGrammarHotkeyKey = defaultSettings.hotkeyKey
-                    draftGrammarHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
-                    grammarHotkeyInput = defaultSettings.hotkeyKey
+                    resetGrammarSettings()
                 }) {
                     HStack {
                         Image(systemName: "arrow.counterclockwise")
@@ -434,41 +452,27 @@ struct SettingsView: View {
 
     #if os(macOS)
     private var macOSContent: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(copy.settingsTitle)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Spacer()
-                Button(copy.saveButton) {
-                    saveChanges()
-                }
-                .disabled(!hasChanges)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 12)
-
+        HStack(spacing: 0) {
+            macOSSidebar
             Divider()
 
-            TabView {
-                settingsForm
-                    .formStyle(.grouped)
-                    .scrollContentBackground(.hidden)
-                    .tabItem {
-                        Text(copy.speechTab)
-                    }
+            VStack(spacing: 0) {
+                macOSHeader
+                Divider()
 
-                grammarSettingsForm
-                    .formStyle(.grouped)
-                    .scrollContentBackground(.hidden)
-                    .tabItem {
-                        Text(copy.grammarTab)
+                Group {
+                    switch selectedTab {
+                    case .speech:
+                        macOSSpeechSettings
+                    case .grammar:
+                        macOSGrammarSettings
                     }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        .tint(Color(red: 0.12, green: 0.49, blue: 0.91))
         .alert(copy.settingsTitle, isPresented: Binding(
             get: { validationMessage != nil },
             set: { if !$0 { validationMessage = nil } }
@@ -477,6 +481,414 @@ struct SettingsView: View {
         } message: {
             Text(validationMessage ?? "")
         }
+    }
+
+    private var macOSSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Image("AppLogo")
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 38, height: 38)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("AuralAI")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                    Text(copy.settingsTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+
+            VStack(spacing: 6) {
+                macOSSidebarButton(
+                    title: copy.speechTab,
+                    systemImage: "speaker.wave.2.fill",
+                    shortcut: draftHotkeyDisplayString,
+                    tab: .speech
+                )
+
+                macOSSidebarButton(
+                    title: copy.grammarTab,
+                    systemImage: "textformat",
+                    shortcut: draftGrammarHotkeyDisplayString,
+                    tab: .grammar
+                )
+            }
+            .padding(.horizontal, 10)
+
+            Spacer()
+
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(hasChanges ? Color.orange : Color.green)
+                    .frame(width: 7, height: 7)
+                Text(hasChanges ? copy.unsavedChangesLabel : copy.savedLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+        }
+        .frame(width: 188)
+        .background(.ultraThinMaterial)
+    }
+
+    private func macOSSidebarButton(
+        title: String,
+        systemImage: String,
+        shortcut: String,
+        tab: SettingsTab
+    ) -> some View {
+        Button {
+            selectedTab = tab
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 18)
+
+                Text(title)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Spacer(minLength: 6)
+
+                Text(shortcut)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(selectedTab == tab ? Color.primary : Color.secondary)
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(selectedTab == tab ? Color.accentColor.opacity(0.13) : .clear)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(tab == .speech ? "settings.tab.speech" : "settings.tab.grammar")
+        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+    }
+
+    private var macOSHeader: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(selectedTab == .speech ? copy.speechTab : copy.grammarTab)
+                    .font(.title2.weight(.semibold))
+                Text(copy.settingsTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                saveChanges()
+            } label: {
+                Label(copy.saveButton, systemImage: "checkmark")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(!hasChanges)
+        }
+        .padding(.horizontal, 28)
+        .frame(height: 72)
+    }
+
+    private var macOSSpeechSettings: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                macOSSection(title: copy.shortcutSection, systemImage: "command") {
+                    macOSSettingsRow(title: copy.shortcutKeyLabel, help: copy.shortcutHelp) {
+                        HStack(spacing: 10) {
+                            TextField(copy.shortcutKeyLabel, text: $hotkeyInput)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.center)
+                                .frame(width: 52)
+                                .onChange(of: hotkeyInput) { _, newValue in
+                                    let normalized = SpeechSettings.supportedHotkeyKey(from: newValue) ?? "S"
+                                    hotkeyInput = normalized
+                                    draftHotkeyKey = normalized
+                                }
+
+                            Picker(copy.modifierLabel, selection: $draftHotkeyModifiersRawValue) {
+                                ForEach(modifierOptions, id: \.value) { option in
+                                    Text(option.label).tag(option.value)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 210)
+                        }
+                    }
+
+                    macOSSettingsRow(title: copy.currentShortcutLabel) {
+                        shortcutBadge(draftHotkeyDisplayString, isError: false)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.languageSection, systemImage: "globe") {
+                    macOSSettingsRow(title: copy.languageLabel, help: copy.languageHelp) {
+                        Picker(copy.languageLabel, selection: $draftLanguageRawValue) {
+                            ForEach(SpeechSettings.LanguageOption.allCases) { language in
+                                Text(localizedTitle(for: language)).tag(language.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 272)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.voiceSection, systemImage: "waveform") {
+                    macOSSettingsRow(title: copy.voiceLabel, help: copy.voiceHelp) {
+                        Picker(copy.voiceLabel, selection: $draftVoiceIdentifier) {
+                            Text(copy.defaultVoiceLabel).tag(nil as String?)
+                            ForEach(settings.englishVoices(), id: \.identifier) { voice in
+                                Text("\(voice.name) (\(voice.language))")
+                                    .tag(voice.identifier as String?)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 272)
+                        .onChange(of: draftVoiceIdentifier) { _, newValue in
+                            previewVoiceIfNeeded(newValue)
+                        }
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.deliverySection, systemImage: "slider.horizontal.3") {
+                    macOSSettingsRow(title: copy.rateLabel, help: copy.rateHelp) {
+                        HStack(spacing: 12) {
+                            Slider(
+                                value: $draftRate,
+                                in: AVSpeechUtteranceMinimumSpeechRate...AVSpeechUtteranceMaximumSpeechRate
+                            )
+                            Text(String(format: "%.2f", draftRate))
+                                .font(.system(.body, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                        .frame(width: 272)
+                    }
+
+                    macOSSettingsRow(title: copy.pitchLabel, help: copy.pitchHelp) {
+                        HStack(spacing: 12) {
+                            Slider(value: $draftPitch, in: 0.5...2.0)
+                            Text(String(format: "%.2f", draftPitch))
+                                .font(.system(.body, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                        .frame(width: 272)
+                    }
+                }
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    Button(action: testSpeech) {
+                        Label(copy.testSpeechButton, systemImage: "speaker.wave.2.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Spacer()
+
+                    Button(role: .destructive, action: resetSpeechSettings) {
+                        Label(copy.resetDefaultsButton, systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                }
+                .padding(.vertical, 22)
+            }
+            .padding(.horizontal, 30)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    private var macOSGrammarSettings: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                macOSSection(title: copy.grammarShortcutSection, systemImage: "command") {
+                    macOSSettingsRow(title: copy.shortcutKeyLabel) {
+                        HStack(spacing: 10) {
+                            TextField(copy.shortcutKeyLabel, text: $grammarHotkeyInput)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.center)
+                                .frame(width: 52)
+                                .onChange(of: grammarHotkeyInput) { _, newValue in
+                                    let normalized = GrammarSettings.supportedHotkeyKey(from: newValue)
+                                        ?? GrammarSettings.defaultHotkeyKey
+                                    grammarHotkeyInput = normalized
+                                    draftGrammarHotkeyKey = normalized
+                                }
+
+                            Picker(copy.modifierLabel, selection: $draftGrammarHotkeyModifiersRawValue) {
+                                ForEach(grammarModifierOptions, id: \.value) { option in
+                                    Text(option.label).tag(option.value)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 210)
+                        }
+                    }
+
+                    macOSSettingsRow(title: copy.currentShortcutLabel) {
+                        shortcutBadge(draftGrammarHotkeyDisplayString, isError: hasDuplicateHotkeys)
+                    }
+
+                    if hasDuplicateHotkeys {
+                        Label(copy.duplicateShortcutMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 178)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.modelSection, systemImage: "cpu") {
+                    Picker(copy.apiModeLabel, selection: $draftGrammarAPIModeRawValue) {
+                        ForEach(GrammarSettings.APIMode.allCases) { mode in
+                            Text(localizedTitle(for: mode)).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    macOSSettingsRow(title: copy.modelLabel) {
+                        TextField(copy.modelLabel, text: $draftGrammarModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 272)
+                    }
+
+                    macOSSettingsRow(title: copy.baseURLLabel) {
+                        TextField(copy.baseURLLabel, text: $draftGrammarBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 272)
+                    }
+
+                    macOSSettingsRow(title: copy.apiKeyLabel) {
+                        SecureField(copy.apiKeyLabel, text: $draftGrammarAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 272)
+                    }
+
+                    macOSSettingsRow(title: copy.maxTokensLabel) {
+                        TextField("1024", value: $draftGrammarMaxTokens, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 92)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.systemPromptSection, systemImage: "text.alignleft") {
+                    TextEditor(text: $draftGrammarPrompt)
+                        .font(.system(.body, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 190)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        }
+                }
+
+                Divider()
+
+                HStack {
+                    Spacer()
+                    Button(role: .destructive, action: resetGrammarSettings) {
+                        Label(copy.resetGrammarDefaultsButton, systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                }
+                .padding(.vertical, 22)
+            }
+            .padding(.horizontal, 30)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    private func macOSSection<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .symbolRenderingMode(.hierarchical)
+
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+        }
+        .padding(.vertical, 24)
+    }
+
+    private func macOSSettingsRow<Control: View>(
+        title: String,
+        help: String? = nil,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(alignment: help == nil ? .center : .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .foregroundStyle(.primary)
+
+                if let help {
+                    Text(help)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            control()
+        }
+    }
+
+    private func shortcutBadge(_ shortcut: String, isError: Bool) -> some View {
+        Text(shortcut)
+            .font(.system(.body, design: .monospaced).weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .foregroundStyle(isError ? Color.red : Color.primary)
+            .background(isError ? Color.red.opacity(0.1) : Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isError ? Color.red.opacity(0.4) : Color.primary.opacity(0.12), lineWidth: 1)
+            }
     }
     #endif
 
@@ -512,10 +924,13 @@ struct SettingsView: View {
                 pitchSection: "Speech Pitch",
                 pitchLabel: "Pitch",
                 pitchHelp: "Adjust the pitch of speech (lower ← → higher)",
+                deliverySection: "Delivery",
                 testSpeechButton: "Test Speech",
                 resetDefaultsButton: "Reset to Defaults",
                 speechTab: "Speech",
                 grammarTab: "Grammar",
+                savedLabel: "All changes saved",
+                unsavedChangesLabel: "Unsaved changes",
                 grammarShortcutSection: "Grammar Shortcut",
                 modelSection: "Model",
                 apiModeLabel: "API Mode",
@@ -554,10 +969,13 @@ struct SettingsView: View {
                 pitchSection: "音调",
                 pitchLabel: "音调",
                 pitchHelp: "调整朗读音调（低 ← → 高）",
+                deliverySection: "朗读效果",
                 testSpeechButton: "测试朗读",
                 resetDefaultsButton: "恢复默认设置",
                 speechTab: "朗读",
                 grammarTab: "语法",
+                savedLabel: "所有更改均已保存",
+                unsavedChangesLabel: "有未保存的更改",
                 grammarShortcutSection: "语法快捷键",
                 modelSection: "模型",
                 apiModeLabel: "API 模式",
@@ -640,10 +1058,13 @@ private struct SettingsCopy {
     let pitchSection: String
     let pitchLabel: String
     let pitchHelp: String
+    let deliverySection: String
     let testSpeechButton: String
     let resetDefaultsButton: String
     let speechTab: String
     let grammarTab: String
+    let savedLabel: String
+    let unsavedChangesLabel: String
     let grammarShortcutSection: String
     let modelSection: String
     let apiModeLabel: String
