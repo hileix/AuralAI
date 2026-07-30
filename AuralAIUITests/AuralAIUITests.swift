@@ -29,9 +29,13 @@ final class AuralAIUITests: XCTestCase {
 
         let speechTab = app.buttons["settings.tab.speech"]
         let grammarTab = app.buttons["settings.tab.grammar"]
+        let historyTab = app.buttons["settings.tab.history"]
 
         XCTAssertTrue(speechTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.windows["AuralAI Dev Settings"].exists)
+        XCTAssertTrue(app.staticTexts["AuralAI Dev"].exists)
         XCTAssertTrue(grammarTab.exists)
+        XCTAssertTrue(historyTab.exists)
 
         grammarTab.click()
         XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 2))
@@ -43,6 +47,9 @@ final class AuralAIUITests: XCTestCase {
 
         speechTab.click()
         XCTAssertTrue(app.sliders.firstMatch.waitForExistence(timeout: 2))
+
+        historyTab.click()
+        XCTAssertTrue(app.descendants(matching: .any)["settings.history"].waitForExistence(timeout: 2))
     }
 
     @MainActor
@@ -74,7 +81,53 @@ final class AuralAIUITests: XCTestCase {
             let popup = app.dialogs.firstMatch
             XCTAssertTrue(popup.waitForExistence(timeout: 3))
             XCTAssertEqual(app.buttons.matching(identifier: "grammar.results.option.1").count, 1)
+            let pinButton = app.buttons["grammar.results.pin"]
+            XCTAssertTrue(pinButton.exists)
+            pinButton.click()
+            XCTAssertTrue(pinButton.label == "Unpin" || pinButton.label == "取消固定")
+            popup.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).click()
             addScreenshot(of: popup, named: "Grammar Results - \(appearance)")
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testGrammarStreamingResultsPresentation() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "streaming"
+        app.launch()
+
+        let streamingStatus = app.descendants(matching: .any)["grammar.results.streaming"]
+        XCTAssertTrue(streamingStatus.waitForExistence(timeout: 3))
+
+        let option = app.buttons["grammar.results.option.1"]
+        XCTAssertTrue(option.exists)
+        XCTAssertFalse(option.isEnabled)
+        addScreenshot(of: app.dialogs.firstMatch, named: "Grammar Results - Streaming")
+    }
+
+    @MainActor
+    func testGrammarHistoryPresentation() throws {
+        for appearance in ["Light", "Dark"] {
+            let app = XCUIApplication()
+            app.launchEnvironment["AURALAI_UI_TEST_HISTORY_PREVIEW"] = "1"
+            app.launchEnvironment["AURALAI_UI_TEST_APPEARANCE"] = appearance.lowercased()
+            app.launchArguments += ["-AppleInterfaceStyle", appearance]
+            app.launch()
+
+            let historyTab = app.buttons["settings.tab.history"]
+            XCTAssertTrue(historyTab.waitForExistence(timeout: 3))
+            historyTab.click()
+
+            let history = app.descendants(matching: .any)["settings.history"]
+            XCTAssertTrue(history.waitForExistence(timeout: 2))
+            XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "settings.history.empty").count, 0)
+            let settingsWindow = app.windows.firstMatch
+            XCTAssertTrue(settingsWindow.exists)
+            let screenshot = XCTAttachment(screenshot: settingsWindow.screenshot())
+            screenshot.name = "Grammar History - \(appearance)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
             app.terminate()
         }
     }

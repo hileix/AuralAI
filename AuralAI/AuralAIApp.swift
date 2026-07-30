@@ -49,10 +49,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let ttsService = TTSService.shared
     private let grammarAIService = GrammarAIService.shared
     private let grammarIndicator = GrammarFloatingIndicator.shared
+    private let grammarHistoryStore = GrammarHistoryStore.shared
     private let settings = SpeechSettings.shared
     private let grammarSettings = GrammarSettings.shared
     private let persistenceController = PersistenceController.shared
     private var grammarSourceApp: NSRunningApplication?
+    private var grammarRequestTask: Task<Void, Never>?
+    private var grammarRequestID: UUID?
+    private var grammarResultsRequestID: UUID?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 AuralAI applicationDidFinishLaunching")
@@ -66,6 +70,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         #if DEBUG
+        configureUITestAppearanceIfNeeded()
+        configureGrammarHistoryPreviewIfNeeded()
         showGrammarUIPreviewIfNeeded()
         #endif
 
@@ -74,15 +80,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     #if DEBUG
-    private func showGrammarUIPreviewIfNeeded() {
-        guard let state = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_GRAMMAR_STATE"] else {
+    private func configureUITestAppearanceIfNeeded() {
+        guard let appearance = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_APPEARANCE"] else {
             return
         }
 
-        if let appearance = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_APPEARANCE"] {
-            NSApp.appearance = NSAppearance(
-                named: appearance == "dark" ? .darkAqua : .aqua
+        NSApp.appearance = NSAppearance(
+            named: appearance == "dark" ? .darkAqua : .aqua
+        )
+    }
+
+    private func configureGrammarHistoryPreviewIfNeeded() {
+        guard ProcessInfo.processInfo.environment["AURALAI_UI_TEST_HISTORY_PREVIEW"] == "1" else {
+            return
+        }
+
+        let response = GrammarAIResponse(
+            translation: "A focused interface makes everyday work feel effortless.",
+            errors: "The original sentence needs an article and more natural word order.",
+            options: [
+                "A focused interface makes everyday work feel effortless.",
+                "Thoughtful design makes routine work feel simple and natural."
+            ]
+        )
+        grammarHistoryStore.usePreviewEntries([
+            GrammarHistoryEntry(
+                originalText: "Focused interface make everyday work feel effortless.",
+                response: response,
+                timestamp: Date()
             )
+        ])
+    }
+
+    private func showGrammarUIPreviewIfNeeded() {
+        guard let state = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_GRAMMAR_STATE"] else {
+            return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -105,6 +137,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     ),
                     at: anchor,
                     onSelect: { _ in }
+                )
+            case "streaming":
+                self.grammarIndicator.showStreamingResults(
+                    response: GrammarAIResponse(
+                        translation: "A focused interface makes everyday work feel effortless.",
+                        errors: "The original sentence needs an article and more natural word order.",
+                        options: [
+                            "A focused interface makes everyday work feel"
+                        ]
+                    ),
+                    onSelect: { _ in },
+                    onUserDismiss: {}
                 )
             default:
                 break
@@ -170,6 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleGrammarGlobalHotkey() {
         print("\(grammarSettings.hotkeyDisplayString) pressed - capturing selected text for grammar improvement")
 
+        cancelActiveGrammarRequest()
         grammarIndicator.dismiss()
         grammarSourceApp = NSWorkspace.shared.frontmostApplication
 
@@ -195,36 +240,96 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func triggerGrammarImprovement(for text: String) {
+        cancelActiveGrammarRequest()
+
+        let requestID = UUID()
+        grammarRequestID = requestID
         grammarIndicator.showLoading()
 
-        Task {
+        grammarRequestTask = Task { [weak self] in
+            guard let self else { return }
+
             do {
-                let response = try await self.grammarAIService.improveText(text)
+                let response = try await self.grammarAIService.improveText(text) { [weak self] partialResponse in
+                    guard let self, !Task.isCancelled,
+                          let parsed = self.grammarAIService.parsePartialResponse(from: partialResponse) else {
+                        return
+                    }
 
-                await MainActor.run {
-                    let parsed = self.grammarAIService.parseResponse(from: response)
-                    self.grammarIndicator.showResults(response: parsed) { [weak self] selectedText in
-                        guard let self = self else { return }
+                    await MainActor.run {
+                        guard self.grammarRequestID == requestID else { return }
 
-                        self.clipboardMonitor.writeToClipboard(text: selectedText)
-                        self.grammarSourceApp?.activate(options: [.activateAllWindows])
-
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            if self.grammarHotkeyService.pasteFromClipboard() {
-                                self.grammarIndicator.showSuccess()
-                            } else {
-                                self.grammarIndicator.showError()
-                            }
+                        if self.grammarResultsRequestID == requestID {
+                            self.grammarIndicator.updateResults(response: parsed, isStreaming: true)
+                        } else {
+                            self.grammarResultsRequestID = requestID
+                            self.grammarIndicator.showStreamingResults(
+                                response: parsed,
+                                onSelect: { [weak self] selectedText in
+                                    self?.applyGrammarSelection(selectedText)
+                                },
+                                onUserDismiss: { [weak self] in
+                                    self?.cancelGrammarRequest(id: requestID)
+                                }
+                            )
                         }
                     }
                 }
+
+                await MainActor.run {
+                    guard self.grammarRequestID == requestID else { return }
+
+                    let parsed = self.grammarAIService.parseResponse(from: response)
+                    self.grammarHistoryStore.add(originalText: text, response: parsed)
+                    if self.grammarResultsRequestID == requestID {
+                        self.grammarIndicator.updateResults(response: parsed, isStreaming: false)
+                    } else {
+                        self.grammarIndicator.showResults(response: parsed) { [weak self] selectedText in
+                            self?.applyGrammarSelection(selectedText)
+                        }
+                    }
+                    self.grammarRequestTask = nil
+                    self.grammarRequestID = nil
+                    self.grammarResultsRequestID = nil
+                }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run {
+                    guard self.grammarRequestID == requestID else { return }
+
+                    self.grammarRequestTask = nil
+                    self.grammarRequestID = nil
                     self.grammarIndicator.showError()
                     print("Grammar improvement failed: \(error.localizedDescription)")
                 }
             }
         }
+    }
+
+    private func applyGrammarSelection(_ selectedText: String) {
+        clipboardMonitor.writeToClipboard(text: selectedText)
+        grammarSourceApp?.activate(options: [.activateAllWindows])
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if self.grammarHotkeyService.pasteFromClipboard() {
+                self.grammarIndicator.showSuccess()
+            } else {
+                self.grammarIndicator.showError()
+            }
+        }
+    }
+
+    private func cancelActiveGrammarRequest() {
+        grammarRequestTask?.cancel()
+        grammarRequestTask = nil
+        grammarRequestID = nil
+        grammarResultsRequestID = nil
+    }
+
+    private func cancelGrammarRequest(id: UUID) {
+        guard grammarRequestID == id else { return }
+        cancelActiveGrammarRequest()
     }
 
     /// Open settings window
@@ -238,7 +343,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             let hostingController = NSHostingController(rootView: settingsView)
             let window = NSWindow(contentViewController: hostingController)
-            window.title = "AuralAI Settings"
+            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                ?? "AuralAI"
+            window.title = "\(appName) Settings"
             window.styleMask = [.titled, .closable, .resizable]
             window.setContentSize(NSSize(width: 820, height: 720))
             window.minSize = NSSize(width: 720, height: 620)

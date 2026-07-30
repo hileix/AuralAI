@@ -18,6 +18,7 @@ struct SettingsView: View {
     private enum SettingsTab {
         case speech
         case grammar
+        case history
     }
     #endif
 
@@ -25,6 +26,9 @@ struct SettingsView: View {
     @StateObject private var settings = SpeechSettings.shared
     @StateObject private var grammarSettings = GrammarSettings.shared
     @StateObject private var ttsService = TTSService.shared
+    #if os(macOS)
+    @StateObject private var grammarHistoryStore = GrammarHistoryStore.shared
+    #endif
 
     @State private var testText = "This is a test of the speech settings."
     @State private var draftVoiceIdentifier: String?
@@ -49,6 +53,7 @@ struct SettingsView: View {
     @State private var validationMessage: String?
     #if os(macOS)
     @State private var selectedTab: SettingsTab = .speech
+    @State private var isShowingClearHistoryConfirmation = false
     #endif
 
     let onDone: (() -> Void)?
@@ -466,6 +471,8 @@ struct SettingsView: View {
                         macOSSpeechSettings
                     case .grammar:
                         macOSGrammarSettings
+                    case .history:
+                        macOSGrammarHistory
                     }
                 }
             }
@@ -473,6 +480,18 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(Color(red: 0.12, green: 0.49, blue: 0.91))
+        .confirmationDialog(
+            copy.clearHistoryConfirmationTitle,
+            isPresented: $isShowingClearHistoryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(copy.clearHistoryButton, role: .destructive) {
+                grammarHistoryStore.clear()
+            }
+            Button(copy.cancelButton, role: .cancel) {}
+        } message: {
+            Text(copy.clearHistoryConfirmationMessage)
+        }
         .alert(copy.settingsTitle, isPresented: Binding(
             get: { validationMessage != nil },
             set: { if !$0 { validationMessage = nil } }
@@ -493,7 +512,7 @@ struct SettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("AuralAI")
+                    Text(appDisplayName)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                     Text(copy.settingsTitle)
                         .font(.caption)
@@ -518,6 +537,12 @@ struct SettingsView: View {
                     shortcut: draftGrammarHotkeyDisplayString,
                     tab: .grammar
                 )
+
+                macOSSidebarButton(
+                    title: copy.historyTab,
+                    systemImage: "clock.arrow.circlepath",
+                    tab: .history
+                )
             }
             .padding(.horizontal, 10)
 
@@ -540,7 +565,7 @@ struct SettingsView: View {
     private func macOSSidebarButton(
         title: String,
         systemImage: String,
-        shortcut: String,
+        shortcut: String? = nil,
         tab: SettingsTab
     ) -> some View {
         Button {
@@ -558,10 +583,12 @@ struct SettingsView: View {
 
                 Spacer(minLength: 6)
 
-                Text(shortcut)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
-                    .lineLimit(1)
+                if let shortcut {
+                    Text(shortcut)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
+                        .lineLimit(1)
+                }
             }
             .foregroundStyle(selectedTab == tab ? Color.primary : Color.secondary)
             .padding(.horizontal, 10)
@@ -573,14 +600,25 @@ struct SettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(tab == .speech ? "settings.tab.speech" : "settings.tab.grammar")
+        .accessibilityIdentifier(sidebarAccessibilityIdentifier(for: tab))
         .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+    }
+
+    private func sidebarAccessibilityIdentifier(for tab: SettingsTab) -> String {
+        switch tab {
+        case .speech:
+            return "settings.tab.speech"
+        case .grammar:
+            return "settings.tab.grammar"
+        case .history:
+            return "settings.tab.history"
+        }
     }
 
     private var macOSHeader: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(selectedTab == .speech ? copy.speechTab : copy.grammarTab)
+                Text(selectedTabTitle)
                     .font(.title2.weight(.semibold))
                 Text(copy.settingsTitle)
                     .font(.caption)
@@ -589,18 +627,40 @@ struct SettingsView: View {
 
             Spacer()
 
-            Button {
-                saveChanges()
-            } label: {
-                Label(copy.saveButton, systemImage: "checkmark")
+            if selectedTab == .history {
+                Button(role: .destructive) {
+                    isShowingClearHistoryConfirmation = true
+                } label: {
+                    Label(copy.clearHistoryButton, systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(grammarHistoryStore.entries.isEmpty)
+            } else {
+                Button {
+                    saveChanges()
+                } label: {
+                    Label(copy.saveButton, systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(!hasChanges)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut("s", modifiers: .command)
-            .disabled(!hasChanges)
         }
         .padding(.horizontal, 28)
         .frame(height: 72)
+    }
+
+    private var selectedTabTitle: String {
+        switch selectedTab {
+        case .speech:
+            return copy.speechTab
+        case .grammar:
+            return copy.grammarTab
+        case .history:
+            return copy.historyTab
+        }
     }
 
     private var macOSSpeechSettings: some View {
@@ -835,6 +895,37 @@ struct SettingsView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
     }
 
+    private var macOSGrammarHistory: some View {
+        ScrollView {
+            if grammarHistoryStore.entries.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 34, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+
+                    Text(copy.emptyHistoryTitle)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 420)
+                .accessibilityIdentifier("settings.history.empty")
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(grammarHistoryStore.entries) { entry in
+                        GrammarHistoryRow(entry: entry, copy: copy) {
+                            grammarHistoryStore.delete(entry)
+                        }
+                    }
+                }
+                .padding(.vertical, 22)
+            }
+        }
+        .padding(.horizontal, 30)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        .accessibilityIdentifier("settings.history")
+    }
+
     private func macOSSection<Content: View>(
         title: String,
         systemImage: String,
@@ -896,6 +987,11 @@ struct SettingsView: View {
         draftLanguageRawValue == SpeechSettings.LanguageOption.chinese.rawValue ? .chinese : .english
     }
 
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? "AuralAI"
+    }
+
     private var copy: SettingsCopy {
         switch uiLanguage {
         case .english:
@@ -929,6 +1025,7 @@ struct SettingsView: View {
                 resetDefaultsButton: "Reset to Defaults",
                 speechTab: "Speech",
                 grammarTab: "Grammar",
+                historyTab: "History",
                 savedLabel: "All changes saved",
                 unsavedChangesLabel: "Unsaved changes",
                 grammarShortcutSection: "Grammar Shortcut",
@@ -941,6 +1038,17 @@ struct SettingsView: View {
                 systemPromptSection: "System Prompt",
                 resetGrammarDefaultsButton: "Reset Grammar Defaults",
                 duplicateShortcutMessage: "Speech and Grammar shortcuts must be different.",
+                emptyHistoryTitle: "No writing history yet",
+                originalTextTitle: "Original text",
+                historyResultsTitle: "View results",
+                historyTranslationTitle: "Translation",
+                historyErrorsTitle: "What to fix",
+                historySuggestionsTitle: "Suggestions",
+                deleteHistoryButton: "Delete Entry",
+                clearHistoryButton: "Clear History",
+                clearHistoryConfirmationTitle: "Clear all writing history?",
+                clearHistoryConfirmationMessage: "This can't be undone.",
+                cancelButton: "Cancel",
                 okButton: "OK"
             )
         case .chinese:
@@ -974,6 +1082,7 @@ struct SettingsView: View {
                 resetDefaultsButton: "恢复默认设置",
                 speechTab: "朗读",
                 grammarTab: "语法",
+                historyTab: "历史记录",
                 savedLabel: "所有更改均已保存",
                 unsavedChangesLabel: "有未保存的更改",
                 grammarShortcutSection: "语法快捷键",
@@ -986,6 +1095,17 @@ struct SettingsView: View {
                 systemPromptSection: "系统提示词",
                 resetGrammarDefaultsButton: "恢复语法默认设置",
                 duplicateShortcutMessage: "朗读和语法快捷键不能相同。",
+                emptyHistoryTitle: "暂无写作历史记录",
+                originalTextTitle: "原始文本",
+                historyResultsTitle: "查看结果",
+                historyTranslationTitle: "翻译",
+                historyErrorsTitle: "需要修改",
+                historySuggestionsTitle: "建议",
+                deleteHistoryButton: "删除记录",
+                clearHistoryButton: "清空历史",
+                clearHistoryConfirmationTitle: "清空所有写作历史？",
+                clearHistoryConfirmationMessage: "此操作无法撤销。",
+                cancelButton: "取消",
                 okButton: "好的"
             )
         }
@@ -1033,6 +1153,113 @@ struct SettingsView: View {
     }
 }
 
+#if os(macOS)
+private struct GrammarHistoryRow: View {
+    let entry: GrammarHistoryEntry
+    let copy: SettingsCopy
+    let onDelete: () -> Void
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "text.badge.checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30, height: 30)
+                    .background(Color.accentColor.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                Text(entry.timestamp, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(copy.deleteHistoryButton)
+                .accessibilityLabel(copy.deleteHistoryButton)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(copy.originalTextTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(entry.originalText)
+                    .font(.body)
+                    .lineSpacing(2)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let translation = entry.translation {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label(copy.historyTranslationTitle, systemImage: "character.book.closed")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.blue)
+                            Text(translation)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    if let errors = entry.errors {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label(copy.historyErrorsTitle, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.orange)
+                            Text(errors)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(copy.historySuggestionsTitle, systemImage: "text.badge.checkmark")
+                            .font(.caption.weight(.semibold))
+
+                        ForEach(Array(entry.options.enumerated()), id: \.offset) { index, option in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(Color.accentColor)
+                                    .frame(width: 20)
+                                Text(option)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .font(.callout)
+                .padding(.top, 12)
+            } label: {
+                Label(copy.historyResultsTitle, systemImage: "doc.text.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+        }
+        .accessibilityIdentifier("settings.history.entry.\(entry.id.uuidString)")
+    }
+}
+#endif
+
 private struct SettingsCopy {
     let settingsTitle: String
     let saveButton: String
@@ -1063,6 +1290,7 @@ private struct SettingsCopy {
     let resetDefaultsButton: String
     let speechTab: String
     let grammarTab: String
+    let historyTab: String
     let savedLabel: String
     let unsavedChangesLabel: String
     let grammarShortcutSection: String
@@ -1075,6 +1303,17 @@ private struct SettingsCopy {
     let systemPromptSection: String
     let resetGrammarDefaultsButton: String
     let duplicateShortcutMessage: String
+    let emptyHistoryTitle: String
+    let originalTextTitle: String
+    let historyResultsTitle: String
+    let historyTranslationTitle: String
+    let historyErrorsTitle: String
+    let historySuggestionsTitle: String
+    let deleteHistoryButton: String
+    let clearHistoryButton: String
+    let clearHistoryConfirmationTitle: String
+    let clearHistoryConfirmationMessage: String
+    let cancelButton: String
     let okButton: String
 }
 

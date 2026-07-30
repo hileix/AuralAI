@@ -16,18 +16,33 @@ final class GrammarAIService {
 
     private init() {}
 
-    func improveText(_ text: String) async throws -> String {
+    func improveText(
+        _ text: String,
+        onPartialResponse: ((String) async -> Void)? = nil
+    ) async throws -> String {
         let settings = GrammarSettings.shared
 
         switch settings.apiMode {
         case .openAICompatible:
-            return try await improveTextWithOpenAICompatibleAPI(text, settings: settings)
+            return try await improveTextWithOpenAICompatibleAPI(
+                text,
+                settings: settings,
+                onPartialResponse: onPartialResponse
+            )
         case .direct:
-            return try await improveTextWithDirectAPI(text, settings: settings)
+            return try await improveTextWithDirectAPI(
+                text,
+                settings: settings,
+                onPartialResponse: onPartialResponse
+            )
         }
     }
 
-    private func improveTextWithOpenAICompatibleAPI(_ text: String, settings: GrammarSettings) async throws -> String {
+    private func improveTextWithOpenAICompatibleAPI(
+        _ text: String,
+        settings: GrammarSettings,
+        onPartialResponse: ((String) async -> Void)?
+    ) async throws -> String {
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let endpoint = settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -51,25 +66,28 @@ final class GrammarAIService {
                 ["role": "user", "content": text]
             ],
             "max_tokens": settings.maxTokens,
-            "stream": false
+            "stream": onPartialResponse != nil
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let data = try await performRequest(request)
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let responseText = message["content"] as? String else {
-            throw GrammarAIError.parseError
+        if let onPartialResponse {
+            return try await performStreamingRequest(
+                request,
+                parseCompletedResponse: parseOpenAIResponse,
+                onPartialResponse: onPartialResponse
+            )
         }
 
-        return responseText
+        let data = try await performRequest(request)
+        return try parseOpenAIResponse(data)
     }
 
-    private func improveTextWithDirectAPI(_ text: String, settings: GrammarSettings) async throws -> String {
+    private func improveTextWithDirectAPI(
+        _ text: String,
+        settings: GrammarSettings,
+        onPartialResponse: ((String) async -> Void)?
+    ) async throws -> String {
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let endpoint = settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -90,6 +108,7 @@ final class GrammarAIService {
             "anthropic_version": "vertex-2023-10-16",
             "max_tokens": settings.maxTokens,
             "system": settings.systemPrompt,
+            "stream": onPartialResponse != nil,
             "messages": [
                 ["role": "user", "content": text]
             ]
@@ -97,8 +116,31 @@ final class GrammarAIService {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let data = try await performRequest(request)
+        if let onPartialResponse {
+            return try await performStreamingRequest(
+                request,
+                parseCompletedResponse: parseDirectResponse,
+                onPartialResponse: onPartialResponse
+            )
+        }
 
+        let data = try await performRequest(request)
+        return try parseDirectResponse(data)
+    }
+
+    private func parseOpenAIResponse(_ data: Data) throws -> String {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let responseText = message["content"] as? String else {
+            throw GrammarAIError.parseError
+        }
+
+        return responseText
+    }
+
+    private func parseDirectResponse(_ data: Data) throws -> String {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let content = json["content"] as? [[String: Any]],
               let firstBlock = content.first,
@@ -107,6 +149,105 @@ final class GrammarAIService {
         }
 
         return responseText
+    }
+
+    private func performStreamingRequest(
+        _ request: URLRequest,
+        parseCompletedResponse: (Data) throws -> String,
+        onPartialResponse: (String) async -> Void
+    ) async throws -> String {
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GrammarAIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let data = try await collectData(from: bytes)
+            if httpResponse.statusCode == 401 {
+                throw GrammarAIError.authExpired
+            }
+            let body = String(data: data, encoding: .utf8) ?? "unknown"
+            throw GrammarAIError.apiError(statusCode: httpResponse.statusCode, body: body)
+        }
+
+        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        guard contentType.contains("text/event-stream") else {
+            let data = try await collectData(from: bytes)
+            let completedResponse = try parseCompletedResponse(data)
+            await onPartialResponse(completedResponse)
+            return completedResponse
+        }
+
+        var accumulatedResponse = ""
+        var lastDeliveredResponse = ""
+        var lastDeliveryTime = Date.distantPast
+
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+
+            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmedLine.hasPrefix("data:") else {
+                // DeepSeek sends blank lines or SSE comments while a request waits in its queue.
+                continue
+            }
+
+            let payload = String(trimmedLine.dropFirst(5))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !payload.isEmpty, payload != "[DONE]",
+                  let data = payload.data(using: .utf8),
+                  let delta = Self.streamingTextDelta(from: data),
+                  !delta.isEmpty else {
+                continue
+            }
+
+            accumulatedResponse += delta
+
+            if Date().timeIntervalSince(lastDeliveryTime) >= 0.08 {
+                await onPartialResponse(accumulatedResponse)
+                lastDeliveredResponse = accumulatedResponse
+                lastDeliveryTime = Date()
+            }
+        }
+
+        guard !accumulatedResponse.isEmpty else {
+            throw GrammarAIError.parseError
+        }
+
+        if accumulatedResponse != lastDeliveredResponse {
+            await onPartialResponse(accumulatedResponse)
+        }
+
+        return accumulatedResponse
+    }
+
+    static func streamingTextDelta(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let choices = json["choices"] as? [[String: Any]],
+           let firstChoice = choices.first,
+           let delta = firstChoice["delta"] as? [String: Any],
+           let content = delta["content"] as? String {
+            return content
+        }
+
+        if let delta = json["delta"] as? [String: Any],
+           let text = delta["text"] as? String {
+            return text
+        }
+
+        return nil
+    }
+
+    private func collectData(from bytes: URLSession.AsyncBytes) async throws -> Data {
+        var data = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            data.append(byte)
+        }
+        return data
     }
 
     private func performRequest(_ request: URLRequest) async throws -> Data {
@@ -129,6 +270,18 @@ final class GrammarAIService {
     }
 
     func parseResponse(from response: String) -> GrammarAIResponse {
+        parseResponse(from: response, fallbackToRawResponse: true)
+    }
+
+    func parsePartialResponse(from response: String) -> GrammarAIResponse? {
+        let parsed = parseResponse(from: response, fallbackToRawResponse: false)
+        guard parsed.translation != nil || parsed.errors != nil || !parsed.options.isEmpty else {
+            return nil
+        }
+        return parsed
+    }
+
+    private func parseResponse(from response: String, fallbackToRawResponse: Bool) -> GrammarAIResponse {
         var translation: String?
         var errors: String?
         var options: [String] = []
@@ -179,7 +332,7 @@ final class GrammarAIService {
         if errors == "无" {
             errors = nil
         }
-        if options.isEmpty {
+        if options.isEmpty && fallbackToRawResponse {
             options = [response.trimmingCharacters(in: .whitespacesAndNewlines)]
         }
 

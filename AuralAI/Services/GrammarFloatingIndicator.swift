@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 private class GrammarClickablePanel: NSPanel {
@@ -20,7 +21,18 @@ private class GrammarClickablePanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
+        hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .stationary]
+    }
+}
+
+private final class GrammarResultsModel: ObservableObject {
+    @Published var response: GrammarAIResponse
+    @Published var isStreaming: Bool
+
+    init(response: GrammarAIResponse, isStreaming: Bool) {
+        self.response = response
+        self.isStreaming = isStreaming
     }
 }
 
@@ -33,6 +45,9 @@ final class GrammarFloatingIndicator {
     private var clickOutsideMonitor: Any?
     private var escapeMonitor: Any?
     private var anchorPoint: NSPoint?
+    private var isPinned = false
+    private var resultsModel: GrammarResultsModel?
+    private var onUserDismiss: (() -> Void)?
 
     private init() {}
 
@@ -80,18 +95,63 @@ final class GrammarFloatingIndicator {
         at previewAnchor: NSPoint?,
         onSelect: @escaping (String) -> Void
     ) {
+        showResults(
+            response: response,
+            at: previewAnchor,
+            isStreaming: false,
+            onSelect: onSelect,
+            onUserDismiss: nil
+        )
+    }
+
+    func showStreamingResults(
+        response: GrammarAIResponse,
+        onSelect: @escaping (String) -> Void,
+        onUserDismiss: @escaping () -> Void
+    ) {
+        showResults(
+            response: response,
+            at: nil,
+            isStreaming: true,
+            onSelect: onSelect,
+            onUserDismiss: onUserDismiss
+        )
+    }
+
+    func updateResults(response: GrammarAIResponse, isStreaming: Bool) {
+        DispatchQueue.main.async {
+            self.resultsModel?.response = response
+            self.resultsModel?.isStreaming = isStreaming
+        }
+    }
+
+    private func showResults(
+        response: GrammarAIResponse,
+        at previewAnchor: NSPoint?,
+        isStreaming: Bool,
+        onSelect: @escaping (String) -> Void,
+        onUserDismiss: (() -> Void)?
+    ) {
         DispatchQueue.main.async {
             self.dismiss()
 
             let anchor = previewAnchor ?? self.anchorPoint ?? NSEvent.mouseLocation
+            self.isPinned = false
+            let model = GrammarResultsModel(response: response, isStreaming: isStreaming)
+            self.resultsModel = model
+            self.onUserDismiss = onUserDismiss
             let view = GrammarResultsPopupView(
-                response: response,
+                model: model,
                 onSelect: { [weak self] selected in
+                    self?.onUserDismiss = nil
                     self?.dismiss()
                     onSelect(selected)
                 },
                 onDismiss: { [weak self] in
-                    self?.dismiss()
+                    self?.dismissFromUserAction()
+                },
+                onPinChange: { [weak self] isPinned in
+                    self?.isPinned = isPinned
                 }
             )
 
@@ -116,6 +176,15 @@ final class GrammarFloatingIndicator {
         removeMonitors()
         window?.orderOut(nil)
         window = nil
+        isPinned = false
+        resultsModel = nil
+        onUserDismiss = nil
+    }
+
+    private func dismissFromUserAction() {
+        let callback = onUserDismiss
+        dismiss()
+        callback?()
     }
 
     private func showStatus<V: View>(_ view: V, size: NSSize, at anchor: NSPoint) {
@@ -178,14 +247,15 @@ final class GrammarFloatingIndicator {
     private func installDismissMonitors() {
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self, let window = self.window else { return }
+            guard !self.isPinned else { return }
             if !window.frame.contains(NSEvent.mouseLocation) {
-                self.dismiss()
+                self.dismissFromUserAction()
             }
         }
 
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
-                self?.dismiss()
+                self?.dismissFromUserAction()
                 return nil
             }
             return event
@@ -295,9 +365,12 @@ private struct GrammarStatusView: View {
 }
 
 private struct GrammarResultsPopupView: View {
-    let response: GrammarAIResponse
+    @ObservedObject var model: GrammarResultsModel
     let onSelect: (String) -> Void
     let onDismiss: () -> Void
+    let onPinChange: (Bool) -> Void
+
+    @State private var isPinned = false
 
     private var copy: GrammarPopupCopy { .current }
 
@@ -313,12 +386,39 @@ private struct GrammarResultsPopupView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(copy.resultsTitle)
                         .font(.headline)
-                    Text(copy.optionCount(response.options.count))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        if model.isStreaming {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .accessibilityLabel(copy.improvingText)
+                                .accessibilityIdentifier("grammar.results.streaming")
+                        }
+
+                        Text(copy.optionCount(model.response.options.count))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer()
+
+                Button {
+                    isPinned.toggle()
+                    onPinChange(isPinned)
+                } label: {
+                    Image(systemName: isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isPinned ? Color.accentColor : .secondary)
+                .background(isPinned ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06))
+                .clipShape(Circle())
+                .help(isPinned ? copy.unpinLabel : copy.pinLabel)
+                .accessibilityLabel(isPinned ? copy.unpinLabel : copy.pinLabel)
+                .accessibilityValue(isPinned ? copy.pinnedLabel : copy.unpinnedLabel)
+                .accessibilityIdentifier("grammar.results.pin")
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
@@ -340,7 +440,7 @@ private struct GrammarResultsPopupView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if let translation = response.translation {
+                    if let translation = model.response.translation {
                         GrammarResultSection(
                             title: copy.translationTitle,
                             systemImage: "character.book.closed",
@@ -349,7 +449,7 @@ private struct GrammarResultsPopupView: View {
                         )
                     }
 
-                    if let errors = response.errors {
+                    if let errors = model.response.errors {
                         GrammarResultSection(
                             title: copy.errorsTitle,
                             systemImage: "exclamationmark.triangle.fill",
@@ -358,18 +458,21 @@ private struct GrammarResultsPopupView: View {
                         )
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label(copy.chooseVersionTitle, systemImage: "text.badge.checkmark")
-                            .font(.subheadline.weight(.semibold))
-                            .symbolRenderingMode(.hierarchical)
+                    if !model.response.options.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(copy.chooseVersionTitle, systemImage: "text.badge.checkmark")
+                                .font(.subheadline.weight(.semibold))
+                                .symbolRenderingMode(.hierarchical)
 
-                        ForEach(Array(response.options.enumerated()), id: \.offset) { index, option in
-                            GrammarOptionButton(
-                                index: index + 1,
-                                title: copy.optionTitle(index + 1),
-                                text: option,
-                                onSelect: onSelect
-                            )
+                            ForEach(Array(model.response.options.enumerated()), id: \.offset) { index, option in
+                                GrammarOptionButton(
+                                    index: index + 1,
+                                    title: copy.optionTitle(index + 1),
+                                    text: option,
+                                    isEnabled: !model.isStreaming,
+                                    onSelect: onSelect
+                                )
+                            }
                         }
                     }
                 }
@@ -412,6 +515,7 @@ private struct GrammarOptionButton: View {
     let index: Int
     let title: String
     let text: String
+    let isEnabled: Bool
     let onSelect: (String) -> Void
 
     @State private var isHovered = false
@@ -453,8 +557,10 @@ private struct GrammarOptionButton: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.72)
         .onHover { hovering in
-            isHovered = hovering
+            isHovered = hovering && isEnabled
         }
         .accessibilityLabel("\(title). \(text)")
         .accessibilityIdentifier("grammar.results.option.\(index)")
@@ -470,6 +576,10 @@ private struct GrammarPopupCopy {
     let errorsTitle: String
     let chooseVersionTitle: String
     let closeLabel: String
+    let pinLabel: String
+    let unpinLabel: String
+    let pinnedLabel: String
+    let unpinnedLabel: String
     let optionLabel: String
     let optionsLabel: String
 
@@ -485,6 +595,10 @@ private struct GrammarPopupCopy {
                 errorsTitle: "What to fix",
                 chooseVersionTitle: "Choose a version",
                 closeLabel: "Close",
+                pinLabel: "Keep on Screen",
+                unpinLabel: "Unpin",
+                pinnedLabel: "Pinned",
+                unpinnedLabel: "Not pinned",
                 optionLabel: "Option",
                 optionsLabel: "options"
             )
@@ -498,6 +612,10 @@ private struct GrammarPopupCopy {
                 errorsTitle: "需要修改",
                 chooseVersionTitle: "选择一个版本",
                 closeLabel: "关闭",
+                pinLabel: "固定在屏幕上",
+                unpinLabel: "取消固定",
+                pinnedLabel: "已固定",
+                unpinnedLabel: "未固定",
                 optionLabel: "选项",
                 optionsLabel: "个选项"
             )
