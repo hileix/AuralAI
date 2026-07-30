@@ -75,7 +75,10 @@ final class AuralAIUITests: XCTestCase {
             let app = XCUIApplication()
             app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
             app.launchEnvironment["AURALAI_UI_TEST_APPEARANCE"] = appearance.lowercased()
-            app.launchArguments += ["-AppleInterfaceStyle", appearance]
+            app.launchArguments += [
+                "-AppleInterfaceStyle", appearance,
+                "-grammar.resultsPopupPinned", "false"
+            ]
             app.launch()
 
             let popup = app.dialogs.firstMatch
@@ -87,6 +90,8 @@ final class AuralAIUITests: XCTestCase {
             XCTAssertTrue(pinButton.label == "Unpin" || pinButton.label == "取消固定")
             popup.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).click()
             addScreenshot(of: popup, named: "Grammar Results - \(appearance)")
+            pinButton.click()
+            XCTAssertTrue(pinButton.label == "Keep on Screen" || pinButton.label == "固定在屏幕上")
             app.terminate()
         }
     }
@@ -110,6 +115,7 @@ final class AuralAIUITests: XCTestCase {
     func testGrammarResultsHeaderCanMovePopup() throws {
         let app = XCUIApplication()
         app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
+        app.launchArguments += ["-grammar.resultsPopupPinned", "false"]
         app.launch()
 
         let popup = app.dialogs.firstMatch
@@ -125,6 +131,37 @@ final class AuralAIUITests: XCTestCase {
         let movement = abs(popup.frame.minX - originalFrame.minX)
             + abs(popup.frame.minY - originalFrame.minY)
         XCTAssertGreaterThan(movement, 20)
+    }
+
+    @MainActor
+    func testGrammarResultsPinPersistsAcrossLaunches() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
+        app.launchArguments += ["-grammar.resultsPopupPinned", "false"]
+        app.launch()
+
+        let pinButton = app.buttons["grammar.results.pin"]
+        XCTAssertTrue(pinButton.waitForExistence(timeout: 3))
+        pinButton.click()
+        XCTAssertTrue(pinButton.label == "Unpin" || pinButton.label == "取消固定")
+        app.terminate()
+
+        let relaunchedApp = XCUIApplication()
+        relaunchedApp.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
+        relaunchedApp.launch()
+
+        let popup = relaunchedApp.dialogs.firstMatch
+        let persistedPinButton = relaunchedApp.buttons["grammar.results.pin"]
+        XCTAssertTrue(persistedPinButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(persistedPinButton.label == "Unpin" || persistedPinButton.label == "取消固定")
+
+        let settingsWindow = relaunchedApp.windows["AuralAI Dev Settings"]
+        XCTAssertTrue(settingsWindow.exists)
+        settingsWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).click()
+        XCTAssertTrue(popup.exists)
+
+        persistedPinButton.click()
+        XCTAssertTrue(persistedPinButton.label == "Keep on Screen" || persistedPinButton.label == "固定在屏幕上")
     }
 
     @MainActor

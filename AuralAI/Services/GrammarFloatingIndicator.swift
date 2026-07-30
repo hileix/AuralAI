@@ -46,7 +46,6 @@ final class GrammarFloatingIndicator {
     private var clickOutsideMonitor: Any?
     private var escapeMonitor: Any?
     private var anchorPoint: NSPoint?
-    private var isPinned = false
     private var resultsModel: GrammarResultsModel?
     private var onUserDismiss: (() -> Void)?
 
@@ -137,12 +136,13 @@ final class GrammarFloatingIndicator {
             self.dismiss()
 
             let anchor = previewAnchor ?? self.anchorPoint ?? NSEvent.mouseLocation
-            self.isPinned = false
+            let isPinned = GrammarSettings.shared.isResultsPopupPinned
             let model = GrammarResultsModel(response: response, isStreaming: isStreaming)
             self.resultsModel = model
             self.onUserDismiss = onUserDismiss
             let view = GrammarResultsPopupView(
                 model: model,
+                isPinned: isPinned,
                 onSelect: { [weak self] selected in
                     self?.onUserDismiss = nil
                     self?.dismiss()
@@ -151,8 +151,8 @@ final class GrammarFloatingIndicator {
                 onDismiss: { [weak self] in
                     self?.dismissFromUserAction()
                 },
-                onPinChange: { [weak self] isPinned in
-                    self?.isPinned = isPinned
+                onPinChange: { isPinned in
+                    GrammarSettings.shared.isResultsPopupPinned = isPinned
                 }
             )
 
@@ -177,7 +177,6 @@ final class GrammarFloatingIndicator {
         removeMonitors()
         window?.orderOut(nil)
         window = nil
-        isPinned = false
         resultsModel = nil
         onUserDismiss = nil
     }
@@ -248,7 +247,7 @@ final class GrammarFloatingIndicator {
     private func installDismissMonitors() {
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self, let window = self.window else { return }
-            guard !self.isPinned else { return }
+            guard !GrammarSettings.shared.isResultsPopupPinned else { return }
             if !window.frame.contains(NSEvent.mouseLocation) {
                 self.dismissFromUserAction()
             }
@@ -371,7 +370,21 @@ private struct GrammarResultsPopupView: View {
     let onDismiss: () -> Void
     let onPinChange: (Bool) -> Void
 
-    @State private var isPinned = false
+    @State private var isPinned: Bool
+
+    init(
+        model: GrammarResultsModel,
+        isPinned: Bool,
+        onSelect: @escaping (String) -> Void,
+        onDismiss: @escaping () -> Void,
+        onPinChange: @escaping (Bool) -> Void
+    ) {
+        self.model = model
+        self.onSelect = onSelect
+        self.onDismiss = onDismiss
+        self.onPinChange = onPinChange
+        _isPinned = State(initialValue: isPinned)
+    }
 
     private var copy: GrammarPopupCopy { .current }
 

@@ -50,6 +50,7 @@ final class GrammarSettings: ObservableObject {
     static let defaultAPIMode = APIMode.openAICompatible
     static let defaultHotkeyKey = "E"
     static let defaultHotkeyModifiers: HotkeyModifier = [.control]
+    static let defaultResultsPopupPinned = false
 
     enum APIMode: String, CaseIterable, Identifiable {
         case openAICompatible
@@ -85,6 +86,7 @@ final class GrammarSettings: ObservableObject {
         static let apiMode = "grammar.apiMode"
         static let hotkeyKey = "grammar.hotkeyKey"
         static let hotkeyModifiers = "grammar.hotkeyModifiers"
+        static let resultsPopupPinned = "grammar.resultsPopupPinned"
     }
 
     private let defaults = UserDefaults.standard
@@ -128,6 +130,10 @@ final class GrammarSettings: ObservableObject {
         didSet { defaults.set(hotkeyModifiersRawValue, forKey: Keys.hotkeyModifiers) }
     }
 
+    @Published var isResultsPopupPinned: Bool {
+        didSet { defaults.set(isResultsPopupPinned, forKey: Keys.resultsPopupPinned) }
+    }
+
     var apiMode: APIMode {
         get { APIMode(rawValue: apiModeRawValue) ?? Self.defaultAPIMode }
         set { apiModeRawValue = newValue.rawValue }
@@ -158,6 +164,9 @@ final class GrammarSettings: ObservableObject {
         self.apiModeRawValue = defaults.string(forKey: Keys.apiMode) ?? Self.defaultAPIMode.rawValue
         self.hotkeyKey = Self.normalizedKey(defaults.string(forKey: Keys.hotkeyKey) ?? Self.defaultHotkeyKey)
         self.hotkeyModifiersRawValue = defaults.object(forKey: Keys.hotkeyModifiers) as? Int ?? Self.defaultHotkeyModifiers.rawValue
+        self.isResultsPopupPinned = defaults.object(forKey: Keys.resultsPopupPinned) == nil
+            ? Self.defaultResultsPopupPinned
+            : defaults.bool(forKey: Keys.resultsPopupPinned)
     }
 
     func resetToDefaults() {
