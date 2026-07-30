@@ -22,6 +22,7 @@ private class GrammarClickablePanel: NSPanel {
         backgroundColor = .clear
         hasShadow = true
         hidesOnDeactivate = false
+        isMovableByWindowBackground = true
         collectionBehavior = [.canJoinAllSpaces, .stationary]
     }
 }

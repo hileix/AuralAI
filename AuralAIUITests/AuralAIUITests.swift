@@ -107,6 +107,27 @@ final class AuralAIUITests: XCTestCase {
     }
 
     @MainActor
+    func testGrammarResultsHeaderCanMovePopup() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
+        app.launch()
+
+        let popup = app.dialogs.firstMatch
+        XCTAssertTrue(popup.waitForExistence(timeout: 3))
+        let originalFrame = popup.frame
+
+        let start = popup.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.06))
+        start.press(
+            forDuration: 0.2,
+            thenDragTo: start.withOffset(CGVector(dx: -120, dy: 80))
+        )
+
+        let movement = abs(popup.frame.minX - originalFrame.minX)
+            + abs(popup.frame.minY - originalFrame.minY)
+        XCTAssertGreaterThan(movement, 20)
+    }
+
+    @MainActor
     func testGrammarHistoryPresentation() throws {
         for appearance in ["Light", "Dark"] {
             let app = XCUIApplication()
