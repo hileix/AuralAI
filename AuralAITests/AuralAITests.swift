@@ -68,6 +68,36 @@ struct AuralAITests {
         #expect(GrammarHistoryStore(fileURL: fileURL).entries.isEmpty)
     }
 
+    @Test func grammarHistoryReturnsNewestTrimmedExactMatch() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("GrammarHistory.json")
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let store = GrammarHistoryStore(fileURL: fileURL)
+        store.add(
+            originalText: "  Improve this sentence.\n",
+            response: GrammarAIResponse(
+                translation: nil,
+                errors: "Older result",
+                options: ["Older suggestion"]
+            )
+        )
+        store.add(
+            originalText: "Improve this sentence.",
+            response: GrammarAIResponse(
+                translation: nil,
+                errors: "Newest result",
+                options: ["Newest suggestion"]
+            )
+        )
+
+        let response = try #require(store.response(matching: "\nImprove this sentence.  "))
+        #expect(response.errors == "Newest result")
+        #expect(response.options == ["Newest suggestion"])
+        #expect(store.response(matching: "improve this sentence.") == nil)
+    }
+
     @Test func parsesOpenAIStreamingTextDelta() throws {
         let data = try #require(
             #"{"choices":[{"delta":{"content":"Hello"}}]}"#.data(using: .utf8)

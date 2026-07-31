@@ -56,6 +56,22 @@ final class GrammarHistoryStore: ObservableObject {
         saveEntries()
     }
 
+    func response(matching originalText: String) -> GrammarAIResponse? {
+        let trimmedText = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty,
+              let entry = entries.first(where: {
+                  $0.originalText.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText
+              }) else {
+            return nil
+        }
+
+        return GrammarAIResponse(
+            translation: entry.translation,
+            errors: entry.errors,
+            options: entry.options
+        )
+    }
+
     func delete(_ entry: GrammarHistoryEntry) {
         entries.removeAll { $0.id == entry.id }
         saveEntries()

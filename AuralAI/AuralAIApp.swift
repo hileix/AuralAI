@@ -305,7 +305,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         grammarSourceApp = NSRunningApplication(processIdentifier: input.processIdentifier)
         grammarRequestAnchor = badgeAnchor
         focusedTextInputService.pause()
-        grammarInputBadge.showLoading()
 
         guard let text = sourceSelection?.text ?? focusedTextInputService.readText(from: input) else {
             logger.error("Failed to read text from focused input pid=\(input.processIdentifier)")
@@ -337,16 +336,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showLoadingIndicator: Bool = true
     ) {
         cancelActiveGrammarRequest()
+        grammarRequestAnchor = anchor
+
+        if let cachedResponse = grammarHistoryStore.response(matching: text) {
+            logger.notice("Using cached grammar response length=\(text.count)")
+            grammarInputBadge.stopLoading()
+            grammarIndicator.showResults(
+                response: cachedResponse,
+                at: grammarRequestAnchor,
+                onSelect: { [weak self] selectedText in
+                    self?.applyGrammarSelection(selectedText)
+                },
+                onUserDismiss: { [weak self] in
+                    self?.finishFocusedInputWorkflow()
+                }
+            )
+            return
+        }
 
         let requestID = UUID()
         grammarRequestID = requestID
-        grammarRequestAnchor = anchor
         if showLoadingIndicator {
             if let anchor {
                 grammarIndicator.showLoading(at: anchor)
             } else {
                 grammarIndicator.showLoading()
             }
+        } else {
+            grammarInputBadge.showLoading()
         }
 
         grammarRequestTask = Task { [weak self] in
