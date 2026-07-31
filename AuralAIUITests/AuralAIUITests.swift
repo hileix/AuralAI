@@ -32,8 +32,8 @@ final class AuralAIUITests: XCTestCase {
         let historyTab = app.buttons["settings.tab.history"]
 
         XCTAssertTrue(speechTab.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.windows["AuralAI Dev Settings"].exists)
-        XCTAssertTrue(app.staticTexts["AuralAI Dev"].exists)
+        XCTAssertTrue(app.windows["AuralAI Debug Settings"].exists)
+        XCTAssertTrue(app.staticTexts["AuralAI Debug"].exists)
         XCTAssertTrue(grammarTab.exists)
         XCTAssertTrue(historyTab.exists)
 
@@ -67,6 +67,19 @@ final class AuralAIUITests: XCTestCase {
             addScreenshot(of: loadingStatus, named: "Grammar Loading - \(appearance)")
             app.terminate()
         }
+    }
+
+    @MainActor
+    func testGrammarInputBadgePresentation() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "badge"
+        app.launch()
+
+        let badge = app.buttons["grammar.input.badge"]
+        XCTAssertTrue(badge.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(badge.frame.width, 36)
+        XCTAssertLessThanOrEqual(badge.frame.height, 36)
+        addScreenshot(of: badge, named: "Focused Input Badge")
     }
 
     @MainActor
@@ -155,7 +168,7 @@ final class AuralAIUITests: XCTestCase {
         XCTAssertTrue(persistedPinButton.waitForExistence(timeout: 3))
         XCTAssertTrue(persistedPinButton.label == "Unpin" || persistedPinButton.label == "取消固定")
 
-        let settingsWindow = relaunchedApp.windows["AuralAI Dev Settings"]
+        let settingsWindow = relaunchedApp.windows["AuralAI Debug Settings"]
         XCTAssertTrue(settingsWindow.exists)
         settingsWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).click()
         XCTAssertTrue(popup.exists)

@@ -11,6 +11,16 @@ import Foundation
 
 struct AuralAITests {
 
+    @Test func convertsAccessibilityFrameToAppKitCoordinates() {
+        let frame = FocusedTextInputService.appKitFrame(
+            position: CGPoint(x: 120, y: 90),
+            size: CGSize(width: 480, height: 140),
+            primaryScreenMaxY: 1_080
+        )
+
+        #expect(frame == CGRect(x: 120, y: 850, width: 480, height: 140))
+    }
+
     @Test func grammarHistoryPersistsNewestEntriesWithinLimit() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0443CFC92F6EBE3B008CBC8B /* AuralAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = AuralAI.app; path = "AuralAI Dev.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0443CFC92F6EBE3B008CBC8B /* AuralAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = AuralAI.app; path = "AuralAI Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0443CFDC2F6EBE3D008CBC8B /* AuralAITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AuralAITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0443CFE62F6EBE3D008CBC8B /* AuralAIUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AuralAIUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -397,13 +397,13 @@
 				CODE_SIGN_ENTITLEMENTS = AuralAI/AuralAI.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = Q83FXUCHNL;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "AuralAI Dev";
-				INFOPLIST_KEY_CFBundleName = "AuralAI Dev";
+				INFOPLIST_KEY_CFBundleDisplayName = "AuralAI Debug";
+				INFOPLIST_KEY_CFBundleName = "AuralAI Debug";
 				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "AuralAI needs permission to simulate keyboard events to copy selected text from other applications.";
 				INFOPLIST_KEY_NSAppleScriptEnabled = YES;
@@ -413,9 +413,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.xiaolei.AuralAI.dev;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xiaolei.AuralAI.debug;
 				PRODUCT_MODULE_NAME = AuralAI;
-				PRODUCT_NAME = "AuralAI Dev";
+				PRODUCT_NAME = "AuralAI Debug";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -430,7 +430,7 @@
 				CODE_SIGN_ENTITLEMENTS = AuralAI/AuralAI.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = Q83FXUCHNL;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -460,7 +460,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = Q83FXUCHNL;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
@@ -469,7 +469,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AuralAI Dev.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AuralAI Dev";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AuralAI Debug.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AuralAI Debug";
 			};
 			name = Debug;
 		};
@@ -478,7 +478,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = Q83FXUCHNL;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
@@ -495,7 +495,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = Q83FXUCHNL;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.1.0;
@@ -511,7 +511,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = Q83FXUCHNL;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.1.0;

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import OSLog
 
 @main
 struct AuralAIApp: App {
@@ -41,6 +42,7 @@ struct AuralAIApp: App {
 #if os(macOS)
 /// App delegate for handling macOS-specific functionality
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(subsystem: "com.xiaolei.AuralAI", category: "GrammarWorkflow")
     private var settingsWindow: NSWindow?
 
     private let hotkeyService = GlobalHotkeyService.shared
@@ -49,11 +51,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let ttsService = TTSService.shared
     private let grammarAIService = GrammarAIService.shared
     private let grammarIndicator = GrammarFloatingIndicator.shared
+    private let focusedTextInputService = FocusedTextInputService.shared
+    private let grammarInputBadge = GrammarInputBadge.shared
     private let grammarHistoryStore = GrammarHistoryStore.shared
     private let settings = SpeechSettings.shared
     private let grammarSettings = GrammarSettings.shared
     private let persistenceController = PersistenceController.shared
     private var grammarSourceApp: NSRunningApplication?
+    private var grammarSourceInput: FocusedTextInput?
+    private var grammarSourceSelection: FocusedTextSelection?
+    private var grammarRequestAnchor: NSPoint?
     private var grammarRequestTask: Task<Void, Never>?
     private var grammarRequestID: UUID?
     private var grammarResultsRequestID: UUID?
@@ -63,7 +70,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observeSettings()
         setupHotkeyHandler()
         setupGrammarHotkeyHandler()
+        setupFocusedTextInputHandler()
         checkAccessibilityPermissions()
+        focusedTextInputService.start()
 
         DispatchQueue.main.async {
             self.openSettings()
@@ -150,6 +159,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     onSelect: { _ in },
                     onUserDismiss: {}
                 )
+            case "badge":
+                self.grammarInputBadge.show(
+                    for: NSRect(x: anchor.x - 220, y: anchor.y - 70, width: 440, height: 140),
+                    onClick: {}
+                )
             default:
                 break
             }
@@ -168,6 +182,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupGrammarHotkeyHandler() {
         grammarHotkeyService.onHotkeyTriggered = { [weak self] in
             self?.handleGrammarGlobalHotkey()
+        }
+    }
+
+    private func setupFocusedTextInputHandler() {
+        focusedTextInputService.onFocusedInputChange = { [weak self] input in
+            guard let self else { return }
+
+            guard let input else {
+                self.grammarInputBadge.hide()
+                return
+            }
+
+            self.grammarInputBadge.show(for: input.frame) { [weak self] in
+                self?.handleFocusedTextInput(input)
+            }
         }
     }
 
@@ -212,11 +241,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Handle grammar improvement hotkey press
     private func handleGrammarGlobalHotkey() {
+        if let input = focusedTextInputService.captureCurrentInput() {
+            print("\(grammarSettings.hotkeyDisplayString) pressed - capturing the focused input field")
+            handleFocusedTextInput(input)
+            return
+        }
+
         print("\(grammarSettings.hotkeyDisplayString) pressed - capturing selected text for grammar improvement")
 
         cancelActiveGrammarRequest()
         grammarIndicator.dismiss()
         grammarSourceApp = NSWorkspace.shared.frontmostApplication
+        grammarSourceInput = nil
+        grammarSourceSelection = nil
+        grammarRequestAnchor = nil
 
         let previousChangeCount = clipboardMonitor.currentChangeCount()
         guard grammarHotkeyService.copySelectedText() else { return }
@@ -239,12 +277,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func triggerGrammarImprovement(for text: String) {
+    private func handleFocusedTextInput(_ input: FocusedTextInput) {
+        cancelActiveGrammarRequest()
+        grammarIndicator.dismiss()
+
+        let badgeAnchor = grammarInputBadge.centerPoint ?? input.anchorPoint
+        let sourceSelection = focusedTextInputService.readSelection(from: input)
+        grammarSourceInput = input
+        grammarSourceSelection = sourceSelection
+        grammarSourceApp = NSRunningApplication(processIdentifier: input.processIdentifier)
+        grammarRequestAnchor = badgeAnchor
+        focusedTextInputService.pause()
+        grammarInputBadge.showLoading()
+
+        guard let text = sourceSelection?.text ?? focusedTextInputService.readText(from: input) else {
+            logger.error("Failed to read text from focused input pid=\(input.processIdentifier)")
+            print("The focused input field does not contain readable text")
+            grammarInputBadge.stopLoading()
+            grammarIndicator.showError(at: badgeAnchor)
+            finishFocusedInputWorkflow(after: 1.5)
+            return
+        }
+
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            logger.error("Focused input text is empty pid=\(input.processIdentifier)")
+            print("The focused input field is empty")
+            grammarInputBadge.stopLoading()
+            grammarIndicator.showError(at: badgeAnchor)
+            finishFocusedInputWorkflow(after: 1.5)
+            return
+        }
+
+        let sourceKind = sourceSelection == nil ? "full" : "selection"
+        logger.notice("Captured focused input text source=\(sourceKind, privacy: .public) length=\(text.count) pid=\(input.processIdentifier)")
+        print("✅ Focused input text captured: \(text.prefix(50))...")
+        triggerGrammarImprovement(for: text, anchor: badgeAnchor, showLoadingIndicator: false)
+    }
+
+    private func triggerGrammarImprovement(
+        for text: String,
+        anchor: NSPoint? = nil,
+        showLoadingIndicator: Bool = true
+    ) {
         cancelActiveGrammarRequest()
 
         let requestID = UUID()
         grammarRequestID = requestID
-        grammarIndicator.showLoading()
+        grammarRequestAnchor = anchor
+        if showLoadingIndicator {
+            if let anchor {
+                grammarIndicator.showLoading(at: anchor)
+            } else {
+                grammarIndicator.showLoading()
+            }
+        }
 
         grammarRequestTask = Task { [weak self] in
             guard let self else { return }
@@ -263,13 +349,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             self.grammarIndicator.updateResults(response: parsed, isStreaming: true)
                         } else {
                             self.grammarResultsRequestID = requestID
+                            self.grammarInputBadge.stopLoading()
                             self.grammarIndicator.showStreamingResults(
                                 response: parsed,
+                                at: self.grammarRequestAnchor,
                                 onSelect: { [weak self] selectedText in
                                     self?.applyGrammarSelection(selectedText)
                                 },
                                 onUserDismiss: { [weak self] in
                                     self?.cancelGrammarRequest(id: requestID)
+                                    self?.finishFocusedInputWorkflow()
                                 }
                             )
                         }
@@ -281,12 +370,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                     let parsed = self.grammarAIService.parseResponse(from: response)
                     self.grammarHistoryStore.add(originalText: text, response: parsed)
+                    self.grammarInputBadge.stopLoading()
                     if self.grammarResultsRequestID == requestID {
                         self.grammarIndicator.updateResults(response: parsed, isStreaming: false)
                     } else {
-                        self.grammarIndicator.showResults(response: parsed) { [weak self] selectedText in
-                            self?.applyGrammarSelection(selectedText)
-                        }
+                        self.grammarIndicator.showResults(
+                            response: parsed,
+                            at: self.grammarRequestAnchor,
+                            onSelect: { [weak self] selectedText in
+                                self?.applyGrammarSelection(selectedText)
+                            },
+                            onUserDismiss: { [weak self] in
+                                self?.finishFocusedInputWorkflow()
+                            }
+                        )
                     }
                     self.grammarRequestTask = nil
                     self.grammarRequestID = nil
@@ -300,7 +397,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                     self.grammarRequestTask = nil
                     self.grammarRequestID = nil
-                    self.grammarIndicator.showError()
+                    self.grammarInputBadge.stopLoading()
+                    self.grammarIndicator.showError(at: self.grammarRequestAnchor)
+                    self.finishFocusedInputWorkflow(after: 1.5)
+                    self.logger.error("Grammar improvement failed: \(String(describing: error), privacy: .public)")
                     print("Grammar improvement failed: \(error.localizedDescription)")
                 }
             }
@@ -312,12 +412,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         grammarSourceApp?.activate(options: [.activateAllWindows])
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if self.grammarHotkeyService.pasteFromClipboard() {
-                self.grammarIndicator.showSuccess()
+            if let input = self.grammarSourceInput {
+                guard self.focusedTextInputService.focus(input) else {
+                    self.finishGrammarReplacement(succeeded: false)
+                    return
+                }
+
+                if let selection = self.grammarSourceSelection {
+                    guard self.focusedTextInputService.restoreSelection(selection, in: input) else {
+                        self.finishGrammarReplacement(succeeded: false)
+                        return
+                    }
+                } else if !self.grammarHotkeyService.selectAllText() {
+                    self.finishGrammarReplacement(succeeded: false)
+                    return
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    self.finishGrammarReplacement(
+                        succeeded: self.grammarHotkeyService.pasteFromClipboard()
+                    )
+                }
             } else {
-                self.grammarIndicator.showError()
+                self.finishGrammarReplacement(
+                    succeeded: self.grammarHotkeyService.pasteFromClipboard()
+                )
             }
         }
+    }
+
+    private func finishGrammarReplacement(succeeded: Bool) {
+        if succeeded {
+            if grammarSourceInput == nil {
+                grammarIndicator.showSuccess(at: grammarRequestAnchor)
+            } else {
+                grammarIndicator.dismiss()
+            }
+        } else {
+            grammarIndicator.showError(at: grammarRequestAnchor)
+        }
+        finishFocusedInputWorkflow(after: 0.6)
+    }
+
+    private func finishFocusedInputWorkflow(after delay: TimeInterval = 0) {
+        grammarSourceInput = nil
+        grammarSourceSelection = nil
+        grammarRequestAnchor = nil
+        focusedTextInputService.resume(after: delay)
     }
 
     private func cancelActiveGrammarRequest() {

@@ -47,6 +47,10 @@ final class GrammarHotkeyService {
         postCommandKey(virtualKey: 0x09, label: "Cmd+V")
     }
 
+    func selectAllText() -> Bool {
+        postCommandKey(virtualKey: 0x00, label: "Cmd+A")
+    }
+
     private func observeSettings() {
         let settings = GrammarSettings.shared
 

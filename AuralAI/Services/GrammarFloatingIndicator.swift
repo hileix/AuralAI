@@ -65,22 +65,30 @@ final class GrammarFloatingIndicator {
     }
 
     func showSuccess() {
+        showSuccess(at: nil)
+    }
+
+    func showSuccess(at anchor: NSPoint?) {
         DispatchQueue.main.async {
             self.showStatus(
                 GrammarStatusView(state: .success),
                 size: self.statusSize,
-                at: self.anchorPoint ?? NSEvent.mouseLocation
+                at: anchor ?? self.anchorPoint ?? NSEvent.mouseLocation
             )
             self.dismissAfterDelay()
         }
     }
 
     func showError() {
+        showError(at: nil)
+    }
+
+    func showError(at anchor: NSPoint?) {
         DispatchQueue.main.async {
             self.showStatus(
                 GrammarStatusView(state: .error),
                 size: self.statusSize,
-                at: self.anchorPoint ?? NSEvent.mouseLocation
+                at: anchor ?? self.anchorPoint ?? NSEvent.mouseLocation
             )
             self.dismissAfterDelay()
         }
@@ -98,9 +106,23 @@ final class GrammarFloatingIndicator {
         showResults(
             response: response,
             at: previewAnchor,
-            isStreaming: false,
             onSelect: onSelect,
             onUserDismiss: nil
+        )
+    }
+
+    func showResults(
+        response: GrammarAIResponse,
+        at previewAnchor: NSPoint?,
+        onSelect: @escaping (String) -> Void,
+        onUserDismiss: (() -> Void)?
+    ) {
+        showResults(
+            response: response,
+            at: previewAnchor,
+            isStreaming: false,
+            onSelect: onSelect,
+            onUserDismiss: onUserDismiss
         )
     }
 
@@ -109,9 +131,23 @@ final class GrammarFloatingIndicator {
         onSelect: @escaping (String) -> Void,
         onUserDismiss: @escaping () -> Void
     ) {
-        showResults(
+        showStreamingResults(
             response: response,
             at: nil,
+            onSelect: onSelect,
+            onUserDismiss: onUserDismiss
+        )
+    }
+
+    func showStreamingResults(
+        response: GrammarAIResponse,
+        at previewAnchor: NSPoint?,
+        onSelect: @escaping (String) -> Void,
+        onUserDismiss: @escaping () -> Void
+    ) {
+        showResults(
+            response: response,
+            at: previewAnchor,
             isStreaming: true,
             onSelect: onSelect,
             onUserDismiss: onUserDismiss

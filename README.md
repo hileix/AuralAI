@@ -2,12 +2,13 @@
 
 AuralAI is a SwiftUI menu bar app for text-to-speech and AI grammar improvement.
 
-It reads the current selection with global hotkeys: one for speaking text aloud and one for improving or translating text with a configured AI API.
+It reads the current selection for text-to-speech, detects focused text fields for whole-field grammar improvement, and keeps selection-based grammar improvement as a compatibility fallback.
 
 ## Current Features
 
 - Global hotkey on macOS for reading selected text
 - Separate grammar improvement hotkey, defaulting to `Ctrl+E`
+- Focused text field detection with an AuralAI action button near the field
 - Customizable shortcut key and modifier combination
 - English voice selection with live preview
 - Adjustable speech rate and pitch
@@ -35,15 +36,22 @@ For grammar improvement:
 1. Open the `Grammar` tab in Settings.
 2. Enter the API mode, model, base URL, API key, max tokens, and system prompt.
 3. Click `Save`.
-4. Select text in any app.
-5. Press the grammar hotkey, defaulting to `Ctrl+E`.
-6. Choose one result from the popup to copy it to the pasteboard and paste it back into the source app.
+4. Focus a supported text field in another app. AuralAI shows its logo near the field.
+5. Click the logo or press the grammar hotkey, defaulting to `Ctrl+E`. AuralAI reads the selected text when a selection exists, or the entire field when there is no selection.
+6. Choose one result from the popup to replace the selected range or the entire field, matching what was improved.
+
+When the focused app does not expose a supported text field through macOS Accessibility, the existing selection workflow remains available:
+
+1. Select text in any app.
+2. Press the grammar hotkey.
+3. Choose one result from the popup to copy it to the pasteboard and paste it back into the source app.
 
 The app requires Accessibility permission on macOS so it can:
 
 - register a global hotkey
 - simulate `Cmd+C` to capture selected text
 - simulate `Cmd+V` to paste a selected grammar result
+- detect and read focused text fields in other apps
 
 ## Settings
 
@@ -98,6 +106,22 @@ Speech history is stored in Core Data.
 Open `AuralAI.xcodeproj` in Xcode and run the `AuralAI` scheme.
 
 If Xcode reports a signing error, update the team and signing certificate in the project settings before building.
+
+## Install a Development Build
+
+For repeated Accessibility testing, install a Release-like development build at the same app path:
+
+```bash
+bash Scripts/install_dev.sh
+```
+
+The script builds `AuralAI Dev.app` with the fixed bundle identifier `com.xiaolei.AuralAI.dev`, disables debug signing entitlements, updates `/Applications/AuralAI Dev.app` in place, and launches it. After using this script for the first time, macOS may require one final off/on toggle for `AuralAI Dev` under **System Settings > Privacy & Security > Accessibility**.
+
+The script uses the signing identity configured in Xcode. A stable Developer ID Application certificate is still required for production-grade permission persistence across distributed builds.
+
+The regular Xcode Debug build uses `AuralAI Debug` and `com.xiaolei.AuralAI.debug`. Keeping that temporary build identity separate prevents Xcode's DerivedData apps from conflicting with the installed `AuralAI Dev` Accessibility entry.
+
+AuralAI is intentionally unsandboxed because its focused-field workflow uses macOS Accessibility APIs to inspect and update text in other apps. This system-wide capability is not available to an App Sandbox assistive app, so distribution should use Developer ID signing and notarization rather than Mac App Store sandboxing.
 
 ## DMG Packaging
 
