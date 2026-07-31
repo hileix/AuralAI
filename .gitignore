@@ -9,8 +9,13 @@ xcuserdata/
 build/
 DerivedData/
 .derivedData/
+*.profraw
+*.profdata
 
 # Swift Package Manager
 .build/
 Package.resolved
 dist/
+
+# App Store Connect private keys
+AuthKey_*.p8
