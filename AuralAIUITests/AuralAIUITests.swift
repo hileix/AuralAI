@@ -25,6 +25,7 @@ final class AuralAIUITests: XCTestCase {
     @MainActor
     func testSettingsTabs() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["--auralai-ui-test-open-settings"]
         app.launch()
 
         let speechTab = app.buttons["settings.tab.speech"]
@@ -161,6 +162,7 @@ final class AuralAIUITests: XCTestCase {
 
         let relaunchedApp = XCUIApplication()
         relaunchedApp.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "results"
+        relaunchedApp.launchArguments += ["--auralai-ui-test-open-settings"]
         relaunchedApp.launch()
 
         let popup = relaunchedApp.dialogs.firstMatch
@@ -183,6 +185,7 @@ final class AuralAIUITests: XCTestCase {
             let app = XCUIApplication()
             app.launchEnvironment["AURALAI_UI_TEST_HISTORY_PREVIEW"] = "1"
             app.launchEnvironment["AURALAI_UI_TEST_APPEARANCE"] = appearance.lowercased()
+            app.launchArguments += ["--auralai-ui-test-open-settings"]
             app.launchArguments += ["-AppleInterfaceStyle", appearance]
             app.launch()
 

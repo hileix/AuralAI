@@ -70,9 +70,7 @@ codesign --verify --deep --strict "${INSTALL_PATH}"
 "${LSREGISTER}" -f "${INSTALL_PATH}"
 
 echo "Launching ${APP_NAME}..."
-launchctl submit \
-    -l "${LAUNCH_JOB_LABEL}" \
-    -- "${INSTALL_PATH}/Contents/MacOS/${APP_NAME}"
+open "${INSTALL_PATH}"
 
 cat <<EOF
 

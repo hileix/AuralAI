@@ -71,14 +71,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkeyHandler()
         setupGrammarHotkeyHandler()
         setupFocusedTextInputHandler()
+        setupAccessibilityPermissionHandler()
         checkAccessibilityPermissions()
         focusedTextInputService.start()
 
-        DispatchQueue.main.async {
-            self.openSettings()
+        #if DEBUG
+        if CommandLine.arguments.contains("--auralai-ui-test-open-settings") {
+            DispatchQueue.main.async {
+                self.openSettings()
+            }
         }
 
-        #if DEBUG
         configureUITestAppearanceIfNeeded()
         configureGrammarHistoryPreviewIfNeeded()
         showGrammarUIPreviewIfNeeded()
@@ -200,8 +203,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func setupAccessibilityPermissionHandler() {
+        hotkeyService.onAccessibilityPermissionGranted = { [weak self] in
+            guard let self else { return }
+            self.grammarHotkeyService.refreshRegistration()
+            self.focusedTextInputService.refreshAccessibilityContext()
+        }
+    }
+
     /// Check and request accessibility permissions
     private func checkAccessibilityPermissions() {
+        #if DEBUG
+        if CommandLine.arguments.contains("--auralai-ui-test-open-settings") {
+            return
+        }
+        #endif
+
         if !hotkeyService.hasAccessibilityPermissions() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 self.hotkeyService.requestAccessibilityPermissions()

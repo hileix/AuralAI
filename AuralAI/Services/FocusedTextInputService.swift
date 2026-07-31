@@ -25,7 +25,7 @@ struct FocusedTextSelection {
 final class FocusedTextInputService {
     static let shared = FocusedTextInputService()
 
-    private let systemWideElement = AXUIElementCreateSystemWide()
+    private var systemWideElement = AXUIElementCreateSystemWide()
     private let logger = Logger(subsystem: "com.xiaolei.AuralAI", category: "FocusedTextInput")
     private var refreshTimer: Timer?
     private var isPaused = false
@@ -44,6 +44,12 @@ final class FocusedTextInputService {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+    }
+
+    func refreshAccessibilityContext() {
+        systemWideElement = AXUIElementCreateSystemWide()
+        lastDiagnostic = ""
+        refresh()
     }
 
     func captureCurrentInput() -> FocusedTextInput? {

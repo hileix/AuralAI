@@ -24,6 +24,7 @@ class GlobalHotkeyService: ObservableObject {
     private var didShowAccessibilityHelp = false
 
     var onHotkeyTriggered: (() -> Void)?
+    var onAccessibilityPermissionGranted: (() -> Void)?
 
     private init() {
         observeSettings()
@@ -39,6 +40,11 @@ class GlobalHotkeyService: ObservableObject {
         // Check if we have accessibility permissions
         guard AXIsProcessTrusted() else {
             print("Accessibility permissions not granted. Cannot register global hotkey.")
+            #if DEBUG
+            if CommandLine.arguments.contains("--auralai-ui-test-open-settings") {
+                return
+            }
+            #endif
             requestAccessibilityPermissions()
             startAccessibilityRetry()
             return
@@ -216,6 +222,7 @@ class GlobalHotkeyService: ObservableObject {
 
                 if self.hasAccessibilityPermissions() {
                     self.refreshRegistration()
+                    self.onAccessibilityPermissionGranted?()
                 }
             }
         }
