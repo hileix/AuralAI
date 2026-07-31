@@ -21,6 +21,12 @@ struct AuralAITests {
         #expect(frame == CGRect(x: 120, y: 850, width: 480, height: 140))
     }
 
+    @Test func focusedInputContentRequiresNonWhitespaceText() {
+        #expect(!FocusedTextInputService.hasMeaningfulContent(""))
+        #expect(!FocusedTextInputService.hasMeaningfulContent("  \n"))
+        #expect(FocusedTextInputService.hasMeaningfulContent("Hello"))
+    }
+
     @Test func grammarHistoryPersistsMoreThanOneHundredEntries() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

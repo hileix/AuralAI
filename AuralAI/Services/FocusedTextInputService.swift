@@ -11,6 +11,7 @@ struct FocusedTextInput {
     let element: AXUIElement
     let frame: NSRect
     let processIdentifier: pid_t
+    let hasContent: Bool
 
     var anchorPoint: NSPoint {
         NSPoint(x: frame.maxX - 18, y: frame.maxY - 18)
@@ -299,7 +300,33 @@ final class FocusedTextInputService {
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success else { return nil }
 
-        return FocusedTextInput(element: element, frame: frame, processIdentifier: pid)
+        return FocusedTextInput(
+            element: element,
+            frame: frame,
+            processIdentifier: pid,
+            hasContent: inputContainsText(element) ?? true
+        )
+    }
+
+    private func inputContainsText(_ element: AXUIElement) -> Bool? {
+        if let value = copyAttribute(kAXValueAttribute, from: element) {
+            if let text = value as? String {
+                return Self.hasMeaningfulContent(text)
+            }
+            if let attributedText = value as? NSAttributedString {
+                return Self.hasMeaningfulContent(attributedText.string)
+            }
+        }
+
+        if let count = copyAttribute(kAXNumberOfCharactersAttribute, from: element) as? Int {
+            return count > 0
+        }
+
+        return nil
+    }
+
+    static func hasMeaningfulContent(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     static func appKitFrame(
@@ -352,7 +379,8 @@ final class FocusedTextInputService {
     private func publish(_ input: FocusedTextInput?) {
         if let currentInput, let input,
            CFEqual(currentInput.element, input.element),
-           currentInput.frame.equalTo(input.frame) {
+           currentInput.frame.equalTo(input.frame),
+           currentInput.hasContent == input.hasContent {
             return
         }
 

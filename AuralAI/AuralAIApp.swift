@@ -197,6 +197,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
+            guard input.hasContent else {
+                self.grammarInputBadge.hide()
+                return
+            }
+
             self.grammarInputBadge.show(for: input.frame) { [weak self] in
                 self?.handleFocusedTextInput(input)
             }
