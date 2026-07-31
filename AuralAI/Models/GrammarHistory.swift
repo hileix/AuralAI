@@ -35,11 +35,9 @@ final class GrammarHistoryStore: ObservableObject {
     @Published private(set) var entries: [GrammarHistoryEntry] = []
 
     private let fileURL: URL
-    private let maxEntries: Int
 
-    init(fileURL: URL = GrammarHistoryStore.defaultFileURL(), maxEntries: Int = 100) {
+    init(fileURL: URL = GrammarHistoryStore.defaultFileURL()) {
         self.fileURL = fileURL
-        self.maxEntries = max(1, maxEntries)
         entries = loadEntries()
     }
 
@@ -48,11 +46,6 @@ final class GrammarHistoryStore: ObservableObject {
             GrammarHistoryEntry(originalText: originalText, response: response),
             at: 0
         )
-
-        if entries.count > maxEntries {
-            entries.removeLast(entries.count - maxEntries)
-        }
-
         saveEntries()
     }
 
@@ -94,8 +87,6 @@ final class GrammarHistoryStore: ObservableObject {
         do {
             return try JSONDecoder().decode([GrammarHistoryEntry].self, from: data)
                 .sorted { $0.timestamp > $1.timestamp }
-                .prefix(maxEntries)
-                .map { $0 }
         } catch {
             print("Could not load grammar history: \(error.localizedDescription)")
             return []

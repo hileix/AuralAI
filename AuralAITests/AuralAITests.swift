@@ -21,27 +21,28 @@ struct AuralAITests {
         #expect(frame == CGRect(x: 120, y: 850, width: 480, height: 140))
     }
 
-    @Test func grammarHistoryPersistsNewestEntriesWithinLimit() throws {
+    @Test func grammarHistoryPersistsMoreThanOneHundredEntries() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let fileURL = directoryURL.appendingPathComponent("GrammarHistory.json")
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let store = GrammarHistoryStore(fileURL: fileURL, maxEntries: 2)
+        let store = GrammarHistoryStore(fileURL: fileURL)
         let response = GrammarAIResponse(
             translation: "Translation",
             errors: "An error",
             options: ["Suggestion"]
         )
 
-        store.add(originalText: "First", response: response)
-        store.add(originalText: "Second", response: response)
-        store.add(originalText: "Third", response: response)
+        for index in 0..<125 {
+            store.add(originalText: "Entry \(index)", response: response)
+        }
 
-        #expect(store.entries.map(\.originalText) == ["Third", "Second"])
+        #expect(store.entries.count == 125)
 
-        let reloadedStore = GrammarHistoryStore(fileURL: fileURL, maxEntries: 2)
-        #expect(reloadedStore.entries == store.entries)
+        let reloadedStore = GrammarHistoryStore(fileURL: fileURL)
+        #expect(reloadedStore.entries.count == 125)
+        #expect(Set(reloadedStore.entries.map(\.originalText)).count == 125)
     }
 
     @Test func grammarHistoryDeletesAndClearsEntries() throws {
