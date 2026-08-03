@@ -10,6 +10,8 @@ import AppKit
 
 /// Service for monitoring and reading clipboard/pasteboard content
 class ClipboardMonitor: ObservableObject {
+    typealias PasteboardContents = [[NSPasteboard.PasteboardType: Data]]
+
     static let shared = ClipboardMonitor()
 
     private let pasteboard = NSPasteboard.general
@@ -63,6 +65,30 @@ class ClipboardMonitor: ObservableObject {
 
     func currentChangeCount() -> Int {
         pasteboard.changeCount
+    }
+
+    func snapshotContents() -> PasteboardContents {
+        pasteboard.pasteboardItems?.map { item in
+            var contents: [NSPasteboard.PasteboardType: Data] = [:]
+            for type in item.types {
+                contents[type] = item.data(forType: type)
+            }
+            return contents
+        } ?? []
+    }
+
+    func restoreContents(_ contents: PasteboardContents) {
+        pasteboard.clearContents()
+        let items = contents.map { contents in
+            let item = NSPasteboardItem()
+            for (type, data) in contents {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        if !items.isEmpty {
+            pasteboard.writeObjects(items)
+        }
     }
 
     /// Write text to clipboard

@@ -64,6 +64,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var grammarRequestTask: Task<Void, Never>?
     private var grammarRequestID: UUID?
     private var grammarResultsRequestID: UUID?
+    private var selectionMouseMonitor: Any?
+    private var clipboardSelectionBadgeVisible = false
+    private var selectionProbeSuppressedUntil = Date.distantPast
+    private var mouseSelectionActive = false
+    private var selectionBadgeAnchor: NSPoint?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 AuralAI applicationDidFinishLaunching")
@@ -71,6 +76,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkeyHandler()
         setupGrammarHotkeyHandler()
         setupFocusedTextInputHandler()
+        setupSelectionMouseMonitor()
         setupAccessibilityPermissionHandler()
         checkAccessibilityPermissions()
         focusedTextInputService.start()
@@ -200,6 +206,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         focusedTextInputService.onFocusedInputChange = { [weak self] input in
             guard let self else { return }
 
+            self.clipboardSelectionBadgeVisible = false
+
+            if self.mouseSelectionActive {
+                self.grammarInputBadge.hide()
+                return
+            }
+
             guard let input else {
                 self.grammarInputBadge.hide()
                 return
@@ -210,10 +223,178 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            self.grammarInputBadge.show(for: input.frame) { [weak self] in
+            let onClick: () -> Void = { [weak self] in
                 self?.handleFocusedTextInput(input)
             }
+            if input.hasSelection {
+                self.grammarInputBadge.show(
+                    at: self.selectionBadgeAnchor ?? NSEvent.mouseLocation,
+                    onClick: onClick
+                )
+            } else {
+                self.selectionBadgeAnchor = nil
+                self.grammarInputBadge.show(for: input.frame, onClick: onClick)
+            }
         }
+
+        focusedTextInputService.onExternalSelectionChange = { [weak self] selection in
+            guard let self else { return }
+
+            self.clipboardSelectionBadgeVisible = false
+
+            if self.mouseSelectionActive {
+                self.grammarInputBadge.hide()
+                return
+            }
+
+            guard selection != nil else {
+                self.selectionBadgeAnchor = nil
+                if self.focusedTextInputService.currentInput == nil {
+                    self.grammarInputBadge.hide()
+                }
+                return
+            }
+
+            self.grammarInputBadge.show(at: self.selectionBadgeAnchor ?? NSEvent.mouseLocation) { [weak self] in
+                guard let self else { return }
+                self.selectionProbeSuppressedUntil = Date().addingTimeInterval(1)
+                self.handleGrammarGlobalHotkey()
+            }
+        }
+    }
+
+    private func setupSelectionMouseMonitor() {
+        selectionMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            let mouseLocation = NSEvent.mouseLocation
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if event.type == .leftMouseDown {
+                    self.beginMouseSelection()
+                } else {
+                    self.finishMouseSelection(at: mouseLocation)
+                }
+            }
+        }
+    }
+
+    private func beginMouseSelection() {
+        mouseSelectionActive = true
+        selectionBadgeAnchor = nil
+        clipboardSelectionBadgeVisible = false
+        grammarInputBadge.hide()
+    }
+
+    private func finishMouseSelection(at mouseLocation: NSPoint) {
+        mouseSelectionActive = false
+        selectionBadgeAnchor = mouseLocation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            self?.presentSelectionBadge(at: mouseLocation)
+        }
+    }
+
+    private func presentSelectionBadge(at mouseLocation: NSPoint) {
+        guard Date() >= selectionProbeSuppressedUntil,
+              let sourceApp = NSWorkspace.shared.frontmostApplication,
+              sourceApp.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            return
+        }
+
+        let input = focusedTextInputService.captureCurrentInput()
+        if let input, input.hasSelection {
+            grammarInputBadge.show(at: mouseLocation) { [weak self] in
+                self?.handleFocusedTextInput(input)
+            }
+            return
+        }
+
+        if focusedTextInputService.hasExternalSelection {
+            grammarInputBadge.show(at: mouseLocation) { [weak self] in
+                guard let self else { return }
+                self.selectionProbeSuppressedUntil = Date().addingTimeInterval(1)
+                self.handleGrammarGlobalHotkey()
+            }
+            return
+        }
+
+        if let input, input.hasContent, !isTerminalApplication(sourceApp) {
+            grammarInputBadge.show(for: input.frame) { [weak self] in
+                self?.handleFocusedTextInput(input)
+            }
+            return
+        }
+
+        if isTerminalApplication(sourceApp) {
+            detectTerminalSelection(at: mouseLocation)
+        } else {
+            grammarInputBadge.hide()
+        }
+    }
+
+    private func detectTerminalSelection(at mouseLocation: NSPoint) {
+        guard Date() >= selectionProbeSuppressedUntil,
+              let sourceApp = NSWorkspace.shared.frontmostApplication,
+              isTerminalApplication(sourceApp),
+              focusedTextInputService.currentInput?.hasSelection != true,
+              !focusedTextInputService.hasExternalSelection else {
+            return
+        }
+
+        let pasteboardContents = clipboardMonitor.snapshotContents()
+        let previousChangeCount = clipboardMonitor.currentChangeCount()
+        logger.notice("Checking terminal selection app=\(sourceApp.localizedName ?? "unknown", privacy: .public)")
+        guard grammarHotkeyService.copySelectedText() else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+
+            let clipboardChanged = self.clipboardMonitor.currentChangeCount() != previousChangeCount
+            let selectedText = clipboardChanged ? self.clipboardMonitor.readClipboardText() : nil
+            self.logger.notice(
+                "Terminal selection check changed=\(clipboardChanged) length=\(selectedText?.count ?? 0)"
+            )
+            if clipboardChanged {
+                self.clipboardMonitor.restoreContents(pasteboardContents)
+            }
+
+            guard let selectedText, !selectedText.isEmpty else {
+                self.selectionBadgeAnchor = nil
+                self.clipboardSelectionBadgeVisible = false
+                if let input = self.focusedTextInputService.currentInput,
+                   input.hasContent {
+                    self.grammarInputBadge.show(for: input.frame) { [weak self] in
+                        self?.handleFocusedTextInput(input)
+                    }
+                } else {
+                    self.grammarInputBadge.hide()
+                }
+                return
+            }
+
+            self.clipboardSelectionBadgeVisible = true
+            self.grammarInputBadge.show(at: mouseLocation) { [weak self] in
+                guard let self else { return }
+                self.selectionProbeSuppressedUntil = Date().addingTimeInterval(1)
+                self.clipboardSelectionBadgeVisible = false
+                self.handleGrammarGlobalHotkey()
+            }
+        }
+    }
+
+    private func isTerminalApplication(_ application: NSRunningApplication) -> Bool {
+        let bundleIdentifier = application.bundleIdentifier?.lowercased() ?? ""
+        let name = application.localizedName?.lowercased() ?? ""
+        let terminalIdentifiers = [
+            "com.apple.terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "dev.warp.warp-stable",
+            "net.kovidgoyal.kitty",
+            "org.alacritty",
+            "com.github.wez.wezterm"
+        ]
+        let terminalNames = ["terminal", "iterm", "ghostty", "warp", "kitty", "alacritty", "wezterm"]
+        return terminalIdentifiers.contains(bundleIdentifier)
+            || terminalNames.contains(where: { name.contains($0) })
     }
 
     private func setupAccessibilityPermissionHandler() {
@@ -284,38 +465,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         grammarSourceApp = NSWorkspace.shared.frontmostApplication
         grammarSourceInput = nil
         grammarSourceSelection = nil
-        grammarRequestAnchor = nil
+
+        if grammarInputBadge.centerPoint == nil {
+            grammarInputBadge.show(at: selectionBadgeAnchor ?? NSEvent.mouseLocation) { [weak self] in
+                self?.handleGrammarGlobalHotkey()
+            }
+        }
+        let badgeAnchor = grammarInputBadge.centerPoint
+            ?? selectionBadgeAnchor
+            ?? NSEvent.mouseLocation
+        grammarRequestAnchor = badgeAnchor
+        grammarInputBadge.showLoading()
 
         let previousChangeCount = clipboardMonitor.currentChangeCount()
-        guard grammarHotkeyService.copySelectedText() else { return }
+        guard grammarHotkeyService.copySelectedText() else {
+            grammarInputBadge.stopLoading()
+            grammarIndicator.showError(at: badgeAnchor)
+            return
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             guard self.clipboardMonitor.currentChangeCount() != previousChangeCount else {
                 print("Clipboard did not change after grammar copy command")
-                self.grammarIndicator.showError()
+                self.grammarInputBadge.stopLoading()
+                self.grammarIndicator.showError(at: badgeAnchor)
                 return
             }
 
             guard let text = self.clipboardMonitor.readClipboardText(), !text.isEmpty else {
                 print("No text found in clipboard for grammar improvement")
-                self.grammarIndicator.showError()
+                self.grammarInputBadge.stopLoading()
+                self.grammarIndicator.showError(at: badgeAnchor)
                 return
             }
 
             print("✅ Text captured for grammar improvement: \(text.prefix(50))...")
-            self.triggerGrammarImprovement(for: text)
+            self.triggerGrammarImprovement(for: text, anchor: badgeAnchor, showLoadingIndicator: false)
         }
     }
 
     private func handleFocusedTextInput(_ input: FocusedTextInput) {
+        selectionProbeSuppressedUntil = Date().addingTimeInterval(1)
         cancelActiveGrammarRequest()
         grammarIndicator.dismiss()
 
-        grammarInputBadge.show(for: input.frame) { [weak self] in
-            self?.handleFocusedTextInput(input)
+        if grammarInputBadge.centerPoint == nil {
+            grammarInputBadge.show(for: input.frame) { [weak self] in
+                self?.handleFocusedTextInput(input)
+            }
         }
         let badgeAnchor = grammarInputBadge.centerPoint ?? input.anchorPoint
         let sourceSelection = focusedTextInputService.readSelection(from: input)
+            ?? input.selectedText.map {
+                FocusedTextSelection(text: $0, range: input.selectedRange)
+            }
         grammarSourceInput = input
         grammarSourceSelection = sourceSelection
         grammarSourceApp = NSRunningApplication(processIdentifier: input.processIdentifier)

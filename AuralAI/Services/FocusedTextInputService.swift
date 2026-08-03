@@ -12,6 +12,12 @@ struct FocusedTextInput {
     let frame: NSRect
     let processIdentifier: pid_t
     let hasContent: Bool
+    let selectedText: String?
+    let selectedRange: CFRange?
+
+    var hasSelection: Bool {
+        selectedText != nil
+    }
 
     var anchorPoint: NSPoint {
         NSPoint(x: frame.maxX - 18, y: frame.maxY - 18)
@@ -32,9 +38,16 @@ final class FocusedTextInputService {
     private var isPaused = false
 
     private var lastDiagnostic = ""
+    private var currentExternalSelectionElement: AXUIElement?
+    private var currentExternalSelection: FocusedTextSelection?
 
     private(set) var currentInput: FocusedTextInput?
     var onFocusedInputChange: ((FocusedTextInput?) -> Void)?
+    var onExternalSelectionChange: ((FocusedTextSelection?) -> Void)?
+
+    var hasExternalSelection: Bool {
+        currentExternalSelection != nil
+    }
 
     private init() {}
 
@@ -114,8 +127,12 @@ final class FocusedTextInputService {
     }
 
     func readSelection(from input: FocusedTextInput) -> FocusedTextSelection? {
+        readSelection(from: input.element)
+    }
+
+    private func readSelection(from element: AXUIElement) -> FocusedTextSelection? {
         var selectedRange: CFRange?
-        if let value = copyAttribute(kAXSelectedTextRangeAttribute, from: input.element),
+        if let value = copyAttribute(kAXSelectedTextRangeAttribute, from: element),
            CFGetTypeID(value) == AXValueGetTypeID() {
             let rangeValue = value as! AXValue
             var range = CFRange()
@@ -123,12 +140,10 @@ final class FocusedTextInputService {
                AXValueGetValue(rangeValue, .cfRange, &range),
                range.length > 0 {
                 selectedRange = range
-            } else {
-                return nil
             }
         }
 
-        if let value = copyAttribute(kAXSelectedTextAttribute, from: input.element) {
+        if let value = copyAttribute(kAXSelectedTextAttribute, from: element) {
             if let text = value as? String, !text.isEmpty {
                 logger.notice("Read selected text using AXSelectedText length=\(text.count)")
                 return FocusedTextSelection(text: text, range: selectedRange)
@@ -139,6 +154,10 @@ final class FocusedTextInputService {
             }
         }
 
+        if let markerSelection = readTextMarkerSelection(from: element) {
+            return markerSelection
+        }
+
         guard var range = selectedRange,
               let rangeValue = AXValueCreate(.cfRange, &range) else {
             return nil
@@ -146,7 +165,7 @@ final class FocusedTextInputService {
 
         var result: CFTypeRef?
         let error = AXUIElementCopyParameterizedAttributeValue(
-            input.element,
+            element,
             kAXStringForRangeParameterizedAttribute as CFString,
             rangeValue,
             &result
@@ -158,6 +177,32 @@ final class FocusedTextInputService {
 
         logger.notice("Read selected text using AXStringForRange length=\(text.count)")
         return FocusedTextSelection(text: text, range: range)
+    }
+
+    private func readTextMarkerSelection(from element: AXUIElement) -> FocusedTextSelection? {
+        guard let markerRange = copyAttribute("AXSelectedTextMarkerRange", from: element) else {
+            return nil
+        }
+
+        var result: CFTypeRef?
+        let error = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            "AXStringForTextMarkerRange" as CFString,
+            markerRange,
+            &result
+        )
+        guard error == .success else { return nil }
+
+        if let text = result as? String, !text.isEmpty {
+            logger.notice("Read selected text using AX text markers length=\(text.count)")
+            return FocusedTextSelection(text: text, range: nil)
+        }
+        if let attributedText = result as? NSAttributedString, attributedText.length > 0 {
+            logger.notice("Read selected text using attributed AX text markers length=\(attributedText.length)")
+            return FocusedTextSelection(text: attributedText.string, range: nil)
+        }
+
+        return nil
     }
 
     func restoreSelection(_ selection: FocusedTextSelection, in input: FocusedTextInput) -> Bool {
@@ -189,33 +234,40 @@ final class FocusedTextInputService {
         guard AXIsProcessTrusted() else {
             logDiagnostic("Accessibility permission is not granted")
             publish(nil)
+            publishExternalSelection(nil, element: nil)
             return
         }
 
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             publish(nil)
+            publishExternalSelection(nil, element: nil)
             return
         }
 
         guard let focusedElement = focusedElement() else {
             logDiagnostic("No focused Accessibility element")
             publish(nil)
+            publishExternalSelection(nil, element: nil)
             return
         }
 
         guard let textElement = supportedTextElement(startingAt: focusedElement) else {
             logDiagnostic("Unsupported focus chain: \(roleChain(startingAt: focusedElement))")
             publish(nil)
+            let externalSelection = externalSelection(startingAt: focusedElement)
+            publishExternalSelection(externalSelection?.selection, element: externalSelection?.element)
             return
         }
 
         guard let input = makeInput(from: textElement) else {
             logDiagnostic("Supported text element has no usable frame: \(roleChain(startingAt: textElement))")
             publish(nil)
+            publishExternalSelection(nil, element: nil)
             return
         }
 
         logDiagnostic("Detected text input pid=\(input.processIdentifier) frame=\(NSStringFromRect(input.frame))")
+        publishExternalSelection(nil, element: nil)
         publish(input)
     }
 
@@ -244,6 +296,51 @@ final class FocusedTextInputService {
         }
 
         return nil
+    }
+
+    private func externalSelection(
+        startingAt focusedElement: AXUIElement
+    ) -> (element: AXUIElement, selection: FocusedTextSelection)? {
+        var startingElements: [AXUIElement] = []
+        if let mouseElement = elementAtMousePosition() {
+            startingElements.append(mouseElement)
+        }
+        if !startingElements.contains(where: { CFEqual($0, focusedElement) }) {
+            startingElements.append(focusedElement)
+        }
+
+        for startingElement in startingElements {
+            var candidate = startingElement
+
+            for _ in 0..<10 {
+                if let selection = readSelection(from: candidate) {
+                    return (candidate, selection)
+                }
+
+                guard let parentValue = copyAttribute(kAXParentAttribute, from: candidate),
+                      CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
+                    break
+                }
+                candidate = parentValue as! AXUIElement
+            }
+        }
+
+        return nil
+    }
+
+    private func elementAtMousePosition() -> AXUIElement? {
+        guard let primaryScreen = NSScreen.screens.first else { return nil }
+
+        let mouseLocation = NSEvent.mouseLocation
+        var element: AXUIElement?
+        let error = AXUIElementCopyElementAtPosition(
+            systemWideElement,
+            Float(mouseLocation.x),
+            Float(primaryScreen.frame.maxY - mouseLocation.y),
+            &element
+        )
+        guard error == .success else { return nil }
+        return element
     }
 
     private func isSupportedTextElement(_ element: AXUIElement) -> Bool {
@@ -300,11 +397,15 @@ final class FocusedTextInputService {
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success else { return nil }
 
+        let selection = readSelection(from: element)
+
         return FocusedTextInput(
             element: element,
             frame: frame,
             processIdentifier: pid,
-            hasContent: inputContainsText(element) ?? true
+            hasContent: inputContainsText(element) ?? true,
+            selectedText: selection?.text,
+            selectedRange: selection?.range
         )
     }
 
@@ -380,7 +481,9 @@ final class FocusedTextInputService {
         if let currentInput, let input,
            CFEqual(currentInput.element, input.element),
            currentInput.frame.equalTo(input.frame),
-           currentInput.hasContent == input.hasContent {
+           currentInput.hasContent == input.hasContent,
+           currentInput.selectedText == input.selectedText,
+           rangesEqual(currentInput.selectedRange, input.selectedRange) {
             return
         }
 
@@ -390,5 +493,37 @@ final class FocusedTextInputService {
 
         currentInput = input
         onFocusedInputChange?(input)
+    }
+
+    private func publishExternalSelection(
+        _ selection: FocusedTextSelection?,
+        element: AXUIElement?
+    ) {
+        if let currentExternalSelection, let selection,
+           let currentExternalSelectionElement, let element,
+           CFEqual(currentExternalSelectionElement, element),
+           currentExternalSelection.text == selection.text,
+           rangesEqual(currentExternalSelection.range, selection.range) {
+            return
+        }
+
+        if currentExternalSelection == nil, selection == nil {
+            return
+        }
+
+        currentExternalSelectionElement = element
+        currentExternalSelection = selection
+        onExternalSelectionChange?(selection)
+    }
+
+    private func rangesEqual(_ lhs: CFRange?, _ rhs: CFRange?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (.some(lhs), .some(rhs)):
+            return lhs.location == rhs.location && lhs.length == rhs.length
+        default:
+            return false
+        }
     }
 }

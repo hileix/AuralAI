@@ -42,8 +42,17 @@ final class GrammarInputBadge {
     }
 
     func show(for inputFrame: NSRect, onClick: @escaping () -> Void) {
-        self.onClick = onClick
         let origin = badgeOrigin(for: inputFrame)
+        showBadge(at: origin, onClick: onClick)
+    }
+
+    func show(at point: NSPoint, onClick: @escaping () -> Void) {
+        let origin = mouseBadgeOrigin(for: point)
+        showBadge(at: origin, onClick: onClick)
+    }
+
+    private func showBadge(at origin: NSPoint, onClick: @escaping () -> Void) {
+        self.onClick = onClick
         let frame = NSRect(origin: origin, size: badgeSize)
         let view = GrammarInputBadgeView(isLoading: false, onClick: onClick)
         let hostingView = NSHostingView(rootView: view)
@@ -99,6 +108,17 @@ final class GrammarInputBadge {
         origin.x = min(max(origin.x, screenFrame.minX), screenFrame.maxX - badgeSize.width)
         origin.y = min(max(origin.y, screenFrame.minY), screenFrame.maxY - badgeSize.height)
         return origin
+    }
+
+    private func mouseBadgeOrigin(for point: NSPoint) -> NSPoint {
+        let screenFrame = NSScreen.screens.first(where: { $0.frame.contains(point) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? .zero
+        let origin = NSPoint(x: point.x + 12, y: point.y + 12)
+        return NSPoint(
+            x: min(max(origin.x, screenFrame.minX), screenFrame.maxX - badgeSize.width),
+            y: min(max(origin.y, screenFrame.minY), screenFrame.maxY - badgeSize.height)
+        )
     }
 }
 
