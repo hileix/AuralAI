@@ -91,6 +91,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("✅ Grammar improvement available with \(grammarSettings.hotkeyDisplayString).")
     }
 
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows: Bool
+    ) -> Bool {
+        openSettings()
+        return false
+    }
+
     #if DEBUG
     private func configureUITestAppearanceIfNeeded() {
         guard let appearance = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_APPEARANCE"] else {
@@ -303,6 +311,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cancelActiveGrammarRequest()
         grammarIndicator.dismiss()
 
+        grammarInputBadge.show(for: input.frame) { [weak self] in
+            self?.handleFocusedTextInput(input)
+        }
         let badgeAnchor = grammarInputBadge.centerPoint ?? input.anchorPoint
         let sourceSelection = focusedTextInputService.readSelection(from: input)
         grammarSourceInput = input
@@ -482,11 +493,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func finishGrammarReplacement(succeeded: Bool) {
         if succeeded {
-            if grammarSourceInput == nil {
-                grammarIndicator.showSuccess(at: grammarRequestAnchor)
-            } else {
-                grammarIndicator.dismiss()
-            }
+            grammarIndicator.dismiss()
         } else {
             grammarIndicator.showError(at: grammarRequestAnchor)
         }
