@@ -47,13 +47,27 @@ final class GrammarInputBadge {
     }
 
     func show(for inputFrame: NSRect, onClick: @escaping () -> Void) {
+        guard GrammarSettings.shared.isInputBadgeVisible else { return }
         let origin = badgeOrigin(for: inputFrame)
         showBadge(at: origin, onClick: onClick)
     }
 
     func show(at point: NSPoint, onClick: @escaping () -> Void) {
+        guard GrammarSettings.shared.isInputBadgeVisible else { return }
         let origin = mouseBadgeOrigin(for: point)
         showBadge(at: origin, onClick: onClick)
+    }
+
+    func showLoading(for inputFrame: NSRect, onClick: @escaping () -> Void) {
+        let origin = badgeOrigin(for: inputFrame)
+        showBadge(at: origin, onClick: onClick)
+        showLoading()
+    }
+
+    func showLoading(at point: NSPoint, onClick: @escaping () -> Void) {
+        let origin = mouseBadgeOrigin(for: point)
+        showBadge(at: origin, onClick: onClick)
+        showLoading()
     }
 
     private func showBadge(at origin: NSPoint, onClick: @escaping () -> Void) {
@@ -90,6 +104,10 @@ final class GrammarInputBadge {
 
     func stopLoading() {
         isLoading = false
+        guard GrammarSettings.shared.isInputBadgeVisible else {
+            hide()
+            return
+        }
         guard let panel, let onClick else { return }
         let view = GrammarInputBadgeView(isLoading: false, onClick: onClick)
         let hostingView = NSHostingView(rootView: view)

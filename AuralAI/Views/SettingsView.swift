@@ -48,6 +48,7 @@ struct SettingsView: View {
     @State private var draftGrammarMaxTokens: Int
     @State private var draftGrammarHotkeyKey: String
     @State private var draftGrammarHotkeyModifiersRawValue: Int
+    @State private var draftGrammarInputBadgeVisible: Bool
     @State private var grammarHotkeyInput: String
     @State private var initialGrammarSettingsSnapshot: GrammarSettings.CodableSettings
     @State private var validationMessage: String?
@@ -79,6 +80,7 @@ struct SettingsView: View {
         _draftGrammarMaxTokens = State(initialValue: currentGrammarSettings.maxTokens)
         _draftGrammarHotkeyKey = State(initialValue: currentGrammarSettings.hotkeyKey)
         _draftGrammarHotkeyModifiersRawValue = State(initialValue: currentGrammarSettings.hotkeyModifiers)
+        _draftGrammarInputBadgeVisible = State(initialValue: currentGrammarSettings.isInputBadgeVisible)
         _grammarHotkeyInput = State(initialValue: currentGrammarSettings.hotkeyKey)
         _initialGrammarSettingsSnapshot = State(initialValue: currentGrammarSettings)
     }
@@ -154,6 +156,7 @@ struct SettingsView: View {
         draftGrammarMaxTokens = defaultSettings.maxTokens
         draftGrammarHotkeyKey = defaultSettings.hotkeyKey
         draftGrammarHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
+        draftGrammarInputBadgeVisible = defaultSettings.isInputBadgeVisible
         grammarHotkeyInput = defaultSettings.hotkeyKey
     }
 
@@ -185,7 +188,8 @@ struct SettingsView: View {
             apiKey: draftGrammarAPIKey,
             apiMode: draftGrammarAPIModeRawValue,
             hotkeyKey: draftGrammarHotkeyKey,
-            hotkeyModifiers: draftGrammarHotkeyModifiersRawValue
+            hotkeyModifiers: draftGrammarHotkeyModifiersRawValue,
+            isInputBadgeVisible: draftGrammarInputBadgeVisible
         )
     }
 
@@ -413,6 +417,11 @@ struct SettingsView: View {
                 }
             }
 
+            Section(copy.inputBadgeSection) {
+                Toggle(copy.showInputBadgeLabel, isOn: $draftGrammarInputBadgeVisible)
+                    .accessibilityIdentifier("settings.grammar.showInputBadge")
+            }
+
             Section(copy.modelSection) {
                 Picker(copy.apiModeLabel, selection: $draftGrammarAPIModeRawValue) {
                     ForEach(GrammarSettings.APIMode.allCases) { mode in
@@ -428,9 +437,8 @@ struct SettingsView: View {
                 HStack {
                     Text(copy.maxTokensLabel)
                     Spacer()
-                    TextField("1024", value: $draftGrammarMaxTokens, format: .number)
-                        .frame(width: 90)
-                        .multilineTextAlignment(.trailing)
+                    Text(copy.automaticMaxTokensLabel)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -826,6 +834,17 @@ struct SettingsView: View {
 
                 Divider()
 
+                macOSSection(title: copy.inputBadgeSection, systemImage: "text.badge.checkmark") {
+                    macOSSettingsRow(title: copy.showInputBadgeLabel) {
+                        Toggle(copy.showInputBadgeLabel, isOn: $draftGrammarInputBadgeVisible)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityIdentifier("settings.grammar.showInputBadge")
+                    }
+                }
+
+                Divider()
+
                 macOSSection(title: copy.modelSection, systemImage: "cpu") {
                     Picker(copy.apiModeLabel, selection: $draftGrammarAPIModeRawValue) {
                         ForEach(GrammarSettings.APIMode.allCases) { mode in
@@ -853,10 +872,9 @@ struct SettingsView: View {
                     }
 
                     macOSSettingsRow(title: copy.maxTokensLabel) {
-                        TextField("1024", value: $draftGrammarMaxTokens, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 92)
+                        Text(copy.automaticMaxTokensLabel)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 272, alignment: .trailing)
                     }
                 }
 
@@ -1029,12 +1047,15 @@ struct SettingsView: View {
                 savedLabel: "All changes saved",
                 unsavedChangesLabel: "Unsaved changes",
                 grammarShortcutSection: "Grammar Shortcut",
+                inputBadgeSection: "Input Badge",
+                showInputBadgeLabel: "Show next to editable text",
                 modelSection: "Model",
                 apiModeLabel: "API Mode",
                 modelLabel: "Model",
                 baseURLLabel: "Base URL",
                 apiKeyLabel: "API Key",
                 maxTokensLabel: "Max Tokens",
+                automaticMaxTokensLabel: "Automatic",
                 systemPromptSection: "System Prompt",
                 resetGrammarDefaultsButton: "Reset Grammar Defaults",
                 duplicateShortcutMessage: "Speech and Grammar shortcuts must be different.",
@@ -1086,12 +1107,15 @@ struct SettingsView: View {
                 savedLabel: "所有更改均已保存",
                 unsavedChangesLabel: "有未保存的更改",
                 grammarShortcutSection: "语法快捷键",
+                inputBadgeSection: "输入图标",
+                showInputBadgeLabel: "在可编辑文本旁显示",
                 modelSection: "模型",
                 apiModeLabel: "API 模式",
                 modelLabel: "模型",
                 baseURLLabel: "基础 URL",
                 apiKeyLabel: "API 密钥",
                 maxTokensLabel: "最大令牌数",
+                automaticMaxTokensLabel: "自动",
                 systemPromptSection: "系统提示词",
                 resetGrammarDefaultsButton: "恢复语法默认设置",
                 duplicateShortcutMessage: "朗读和语法快捷键不能相同。",
@@ -1294,12 +1318,15 @@ private struct SettingsCopy {
     let savedLabel: String
     let unsavedChangesLabel: String
     let grammarShortcutSection: String
+    let inputBadgeSection: String
+    let showInputBadgeLabel: String
     let modelSection: String
     let apiModeLabel: String
     let modelLabel: String
     let baseURLLabel: String
     let apiKeyLabel: String
     let maxTokensLabel: String
+    let automaticMaxTokensLabel: String
     let systemPromptSection: String
     let resetGrammarDefaultsButton: String
     let duplicateShortcutMessage: String

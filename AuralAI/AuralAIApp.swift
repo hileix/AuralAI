@@ -7,6 +7,7 @@
 
 import SwiftUI
 import OSLog
+import Combine
 
 @main
 struct AuralAIApp: App {
@@ -72,6 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mouseSelectionActive = false
     private var badgeMouseClickActive = false
     private var selectionBadgeAnchor: NSPoint?
+    private var settingsCancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 AuralAI applicationDidFinishLaunching")
@@ -194,6 +196,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     for: NSRect(x: anchor.x - 220, y: anchor.y - 70, width: 440, height: 140),
                     onClick: {}
                 )
+            case "badge-loading":
+                self.grammarInputBadge.showLoading(
+                    for: NSRect(x: anchor.x - 220, y: anchor.y - 70, width: 440, height: 140),
+                    onClick: {}
+                )
             default:
                 break
             }
@@ -219,6 +226,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         focusedTextInputService.onFocusedInputChange = { [weak self] input in
             guard let self else { return }
             guard !self.grammarInputBadge.isLoading else { return }
+            guard self.grammarSettings.isInputBadgeVisible else {
+                self.grammarInputBadge.hide()
+                return
+            }
             guard !self.selectionBadgeSuppressedAfterAppSwitch else {
                 self.grammarInputBadge.hide()
                 return
@@ -258,6 +269,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         focusedTextInputService.onExternalSelectionChange = { [weak self] selection in
             guard let self else { return }
             guard !self.grammarInputBadge.isLoading else { return }
+            guard self.grammarSettings.isInputBadgeVisible else {
+                self.grammarInputBadge.hide()
+                return
+            }
             guard !self.selectionBadgeSuppressedAfterAppSwitch else {
                 self.grammarInputBadge.hide()
                 return
@@ -333,13 +348,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mouseSelectionActive = false
         selectionBadgeSuppressedAfterAppSwitch = false
         selectionBadgeAnchor = mouseLocation
+        guard grammarSettings.isInputBadgeVisible else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             self?.presentSelectionBadge(at: mouseLocation)
         }
     }
 
     private func presentSelectionBadge(at mouseLocation: NSPoint) {
-        guard !selectionBadgeSuppressedAfterAppSwitch,
+        guard grammarSettings.isInputBadgeVisible,
+              !selectionBadgeSuppressedAfterAppSwitch,
               Date() >= selectionProbeSuppressedUntil,
               let sourceApp = NSWorkspace.shared.frontmostApplication,
               sourceApp.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
@@ -378,7 +395,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func detectTerminalSelection(at mouseLocation: NSPoint) {
-        guard !selectionBadgeSuppressedAfterAppSwitch,
+        guard grammarSettings.isInputBadgeVisible,
+              !selectionBadgeSuppressedAfterAppSwitch,
               Date() >= selectionProbeSuppressedUntil,
               let sourceApp = NSWorkspace.shared.frontmostApplication,
               isTerminalApplication(sourceApp),
@@ -516,8 +534,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         grammarSourceSelection = nil
 
         if grammarInputBadge.centerPoint == nil {
-            grammarInputBadge.show(at: selectionBadgeAnchor ?? NSEvent.mouseLocation) { [weak self] in
-                self?.handleGrammarGlobalHotkey()
+            let badgePoint = selectionBadgeAnchor ?? NSEvent.mouseLocation
+            if grammarSettings.isInputBadgeVisible {
+                grammarInputBadge.show(at: badgePoint) { [weak self] in
+                    self?.handleGrammarGlobalHotkey()
+                }
+            } else {
+                grammarInputBadge.showLoading(at: badgePoint) { [weak self] in
+                    self?.handleGrammarGlobalHotkey()
+                }
             }
         }
         let badgeAnchor = grammarInputBadge.centerPoint
@@ -553,7 +578,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             print("✅ Text captured for grammar improvement: \(text.prefix(50))...")
-            self.triggerGrammarImprovement(for: text, anchor: badgeAnchor, showLoadingIndicator: false)
+            self.triggerGrammarImprovement(
+                for: text,
+                anchor: badgeAnchor,
+                showLoadingIndicator: false
+            )
         }
     }
 
@@ -563,8 +592,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         grammarIndicator.dismiss()
 
         if grammarInputBadge.centerPoint == nil {
-            grammarInputBadge.show(for: input.frame) { [weak self] in
-                self?.handleFocusedTextInput(input)
+            if grammarSettings.isInputBadgeVisible {
+                grammarInputBadge.show(for: input.frame) { [weak self] in
+                    self?.handleFocusedTextInput(input)
+                }
+            } else {
+                grammarInputBadge.showLoading(for: input.frame) { [weak self] in
+                    self?.handleFocusedTextInput(input)
+                }
             }
         }
         let badgeAnchor = grammarInputBadge.centerPoint ?? input.anchorPoint
@@ -599,7 +634,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let sourceKind = sourceSelection == nil ? "full" : "selection"
         logger.notice("Captured focused input text source=\(sourceKind, privacy: .public) length=\(text.count) pid=\(input.processIdentifier)")
         print("✅ Focused input text captured: \(text.prefix(50))...")
-        triggerGrammarImprovement(for: text, anchor: badgeAnchor, showLoadingIndicator: false)
+        triggerGrammarImprovement(
+            for: text,
+            anchor: badgeAnchor,
+            showLoadingIndicator: false
+        )
     }
 
     private func triggerGrammarImprovement(
@@ -823,7 +862,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func observeSettings() {}
+    private func observeSettings() {
+        grammarSettings.$isInputBadgeVisible
+            .dropFirst()
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                self?.grammarInputBadge.hide()
+            }
+            .store(in: &settingsCancellables)
+    }
 
     func openSettingsFromMenuBar() {
         openSettings()

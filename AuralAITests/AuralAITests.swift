@@ -30,11 +30,18 @@ struct AuralAITests {
         #expect(FocusedTextInputService.hasMeaningfulContent(" Hello "))
     }
 
+    @Test func grammarInputBadgeIsVisibleByDefault() {
+        #expect(GrammarSettings.CodableSettings.defaults.isInputBadgeVisible)
+    }
+
     @Test @MainActor func grammarInputBadgeCannotHideWhileLoading() throws {
         let badge = GrammarInputBadge.shared
+        let originalVisibility = GrammarSettings.shared.isInputBadgeVisible
+        GrammarSettings.shared.isInputBadgeVisible = true
         defer {
             badge.stopLoading()
             badge.hide()
+            GrammarSettings.shared.isInputBadgeVisible = originalVisibility
         }
 
         badge.show(at: NSPoint(x: 100, y: 100), onClick: {})
@@ -49,6 +56,26 @@ struct AuralAITests {
 
         badge.stopLoading()
         badge.hide()
+        #expect(badge.centerPoint == nil)
+    }
+
+    @Test @MainActor func grammarInputBadgeTemporarilyShowsLoadingWhenDisabled() throws {
+        let badge = GrammarInputBadge.shared
+        let originalVisibility = GrammarSettings.shared.isInputBadgeVisible
+        GrammarSettings.shared.isInputBadgeVisible = false
+        defer {
+            badge.stopLoading()
+            badge.hide()
+            GrammarSettings.shared.isInputBadgeVisible = originalVisibility
+        }
+
+        badge.showLoading(at: NSPoint(x: 100, y: 100), onClick: {})
+
+        #expect(badge.isLoading)
+        #expect(badge.centerPoint != nil)
+
+        badge.stopLoading()
+        #expect(!badge.isLoading)
         #expect(badge.centerPoint == nil)
     }
 
@@ -146,10 +173,62 @@ struct AuralAITests {
         #expect(GrammarAIService.streamingTextDelta(from: data) == "Hello")
     }
 
+    @Test func parsesStreamingFinishReasons() throws {
+        let openAIData = try #require(
+            #"{"choices":[{"delta":{},"finish_reason":"length"}]}"#.data(using: .utf8)
+        )
+        let directData = try #require(
+            #"{"type":"message_delta","delta":{"stop_reason":"max_tokens"}}"#.data(using: .utf8)
+        )
+
+        #expect(GrammarAIService.streamingFinishReason(from: openAIData) == "length")
+        #expect(GrammarAIService.streamingFinishReason(from: directData) == "max_tokens")
+    }
+
     @Test func incompleteUnstructuredResponseHasNoPartialResult() {
         let parsed = GrammarAIService.shared.parsePartialResponse(from: "Still generating")
 
         #expect(parsed == nil)
+    }
+
+    @Test func grammarResponseTokenBudgetScalesWithInputLength() {
+        let shortBudget = GrammarAIService.dynamicMaxTokens(for: "This sentence needs work.")
+        let mediumBudget = GrammarAIService.dynamicMaxTokens(
+            for: String(repeating: "This is a longer sentence that needs improvement. ", count: 20)
+        )
+        let longBudget = GrammarAIService.dynamicMaxTokens(
+            for: String(repeating: "这是一段需要翻译和改进的长文本。", count: 500)
+        )
+
+        #expect(shortBudget == 1_024)
+        #expect(mediumBudget > shortBudget)
+        #expect(longBudget > mediumBudget)
+        #expect(longBudget == 8_192)
+    }
+
+    @Test func systemPromptReducesOnlyAvailableResponseCapacity() throws {
+        let text = "This sentence needs work."
+        let shortPromptCapacity = try GrammarAIService.maximumAllowedResponseTokens(
+            for: text,
+            systemPrompt: "Improve the text."
+        )
+        let longPromptCapacity = try GrammarAIService.maximumAllowedResponseTokens(
+            for: text,
+            systemPrompt: String(repeating: "规则", count: 12_500)
+        )
+
+        #expect(GrammarAIService.dynamicMaxTokens(for: text) == 1_024)
+        #expect(shortPromptCapacity == 8_192)
+        #expect(longPromptCapacity < shortPromptCapacity)
+    }
+
+    @Test func rejectsRequestWhenPromptLeavesNoSafeResponseBudget() {
+        #expect(throws: GrammarAIError.self) {
+            try GrammarAIService.maximumAllowedResponseTokens(
+                for: "Short text",
+                systemPrompt: String(repeating: "规则", count: 16_000)
+            )
+        }
     }
 
 }

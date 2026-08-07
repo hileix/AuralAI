@@ -51,6 +51,7 @@ final class GrammarSettings: ObservableObject {
     static let defaultHotkeyKey = "E"
     static let defaultHotkeyModifiers: HotkeyModifier = [.control]
     static let defaultResultsPopupPinned = false
+    static let defaultInputBadgeVisible = true
 
     enum APIMode: String, CaseIterable, Identifiable {
         case openAICompatible
@@ -87,6 +88,7 @@ final class GrammarSettings: ObservableObject {
         static let hotkeyKey = "grammar.hotkeyKey"
         static let hotkeyModifiers = "grammar.hotkeyModifiers"
         static let resultsPopupPinned = "grammar.resultsPopupPinned"
+        static let inputBadgeVisible = "grammar.inputBadgeVisible"
     }
 
     private let defaults = UserDefaults.standard
@@ -134,6 +136,10 @@ final class GrammarSettings: ObservableObject {
         didSet { defaults.set(isResultsPopupPinned, forKey: Keys.resultsPopupPinned) }
     }
 
+    @Published var isInputBadgeVisible: Bool {
+        didSet { defaults.set(isInputBadgeVisible, forKey: Keys.inputBadgeVisible) }
+    }
+
     var apiMode: APIMode {
         get { APIMode(rawValue: apiModeRawValue) ?? Self.defaultAPIMode }
         set { apiModeRawValue = newValue.rawValue }
@@ -167,6 +173,9 @@ final class GrammarSettings: ObservableObject {
         self.isResultsPopupPinned = defaults.object(forKey: Keys.resultsPopupPinned) == nil
             ? Self.defaultResultsPopupPinned
             : defaults.bool(forKey: Keys.resultsPopupPinned)
+        self.isInputBadgeVisible = defaults.object(forKey: Keys.inputBadgeVisible) == nil
+            ? Self.defaultInputBadgeVisible
+            : defaults.bool(forKey: Keys.inputBadgeVisible)
     }
 
     func resetToDefaults() {
@@ -229,6 +238,7 @@ extension GrammarSettings {
         let apiMode: String
         let hotkeyKey: String
         let hotkeyModifiers: Int
+        let isInputBadgeVisible: Bool
 
         static let defaults = CodableSettings(
             systemPrompt: GrammarSettings.defaultSystemPrompt,
@@ -238,7 +248,8 @@ extension GrammarSettings {
             apiKey: GrammarSettings.defaultAPIKey,
             apiMode: GrammarSettings.defaultAPIMode.rawValue,
             hotkeyKey: GrammarSettings.defaultHotkeyKey,
-            hotkeyModifiers: GrammarSettings.defaultHotkeyModifiers.rawValue
+            hotkeyModifiers: GrammarSettings.defaultHotkeyModifiers.rawValue,
+            isInputBadgeVisible: GrammarSettings.defaultInputBadgeVisible
         )
     }
 
@@ -251,7 +262,8 @@ extension GrammarSettings {
             apiKey: apiKey,
             apiMode: apiMode.rawValue,
             hotkeyKey: hotkeyKey,
-            hotkeyModifiers: hotkeyModifiers.rawValue
+            hotkeyModifiers: hotkeyModifiers.rawValue,
+            isInputBadgeVisible: isInputBadgeVisible
         )
     }
 
@@ -264,5 +276,6 @@ extension GrammarSettings {
         apiMode = APIMode(rawValue: codable.apiMode) ?? Self.defaultAPIMode
         hotkeyKey = codable.hotkeyKey
         hotkeyModifiers = HotkeyModifier(rawValue: codable.hotkeyModifiers)
+        isInputBadgeVisible = codable.isInputBadgeVisible
     }
 }

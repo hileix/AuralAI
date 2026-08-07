@@ -40,6 +40,7 @@ final class AuralAIUITests: XCTestCase {
 
         grammarTab.click()
         XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.switches["settings.grammar.showInputBadge"].exists)
 
         let grammarScreenshot = XCTAttachment(screenshot: app.screenshot())
         grammarScreenshot.name = "Grammar Settings"
@@ -74,13 +75,29 @@ final class AuralAIUITests: XCTestCase {
     func testGrammarInputBadgePresentation() throws {
         let app = XCUIApplication()
         app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "badge"
+        app.launchArguments += ["-grammar.inputBadgeVisible", "true"]
         app.launch()
 
-        let badge = app.buttons["grammar.input.badge"]
+        let badge = app.descendants(matching: .any)["grammar.input.badge"]
         XCTAssertTrue(badge.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(badge.frame.width, 36)
         XCTAssertLessThanOrEqual(badge.frame.height, 36)
         addScreenshot(of: badge, named: "Focused Input Badge")
+    }
+
+    @MainActor
+    func testGrammarInputBadgeLoadingPresentationWhenDisabled() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_GRAMMAR_STATE"] = "badge-loading"
+        app.launchArguments += ["-grammar.inputBadgeVisible", "false"]
+        app.launch()
+
+        let badge = app.descendants(matching: .any)["grammar.input.badge"]
+        XCTAssertTrue(badge.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["grammar.status.loading"].exists)
+        XCTAssertLessThanOrEqual(badge.frame.width, 36)
+        XCTAssertLessThanOrEqual(badge.frame.height, 36)
+        addScreenshot(of: badge, named: "Input Badge Loading While Disabled")
     }
 
     @MainActor
