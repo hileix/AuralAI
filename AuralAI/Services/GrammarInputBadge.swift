@@ -33,12 +33,17 @@ final class GrammarInputBadge {
     private let badgeSize = NSSize(width: 34, height: 34)
     private var panel: NSPanel?
     private var onClick: (() -> Void)?
+    private(set) var isLoading = false
 
     private init() {}
 
     var centerPoint: NSPoint? {
         guard let frame = panel?.frame else { return nil }
         return NSPoint(x: frame.midX, y: frame.midY)
+    }
+
+    func contains(_ screenPoint: NSPoint) -> Bool {
+        panel?.frame.contains(screenPoint) == true
     }
 
     func show(for inputFrame: NSRect, onClick: @escaping () -> Void) {
@@ -52,6 +57,8 @@ final class GrammarInputBadge {
     }
 
     private func showBadge(at origin: NSPoint, onClick: @escaping () -> Void) {
+        guard !isLoading else { return }
+
         self.onClick = onClick
         let frame = NSRect(origin: origin, size: badgeSize)
         let view = GrammarInputBadgeView(isLoading: false, onClick: onClick)
@@ -73,6 +80,7 @@ final class GrammarInputBadge {
 
     func showLoading() {
         guard let panel, let onClick else { return }
+        isLoading = true
         let view = GrammarInputBadgeView(isLoading: true, onClick: onClick)
         let hostingView = NSHostingView(rootView: view)
         hostingView.frame = NSRect(origin: .zero, size: badgeSize)
@@ -81,6 +89,7 @@ final class GrammarInputBadge {
     }
 
     func stopLoading() {
+        isLoading = false
         guard let panel, let onClick else { return }
         let view = GrammarInputBadgeView(isLoading: false, onClick: onClick)
         let hostingView = NSHostingView(rootView: view)
@@ -90,6 +99,7 @@ final class GrammarInputBadge {
     }
 
     func hide() {
+        guard !isLoading else { return }
         panel?.orderOut(nil)
         panel = nil
         onClick = nil

@@ -115,14 +115,16 @@ final class GrammarFloatingIndicator {
         response: GrammarAIResponse,
         at previewAnchor: NSPoint?,
         onSelect: @escaping (String) -> Void,
-        onUserDismiss: (() -> Void)?
+        onUserDismiss: (() -> Void)?,
+        onPresented: (() -> Void)? = nil
     ) {
         showResults(
             response: response,
             at: previewAnchor,
             isStreaming: false,
             onSelect: onSelect,
-            onUserDismiss: onUserDismiss
+            onUserDismiss: onUserDismiss,
+            onPresented: onPresented
         )
     }
 
@@ -143,14 +145,16 @@ final class GrammarFloatingIndicator {
         response: GrammarAIResponse,
         at previewAnchor: NSPoint?,
         onSelect: @escaping (String) -> Void,
-        onUserDismiss: @escaping () -> Void
+        onUserDismiss: @escaping () -> Void,
+        onPresented: (() -> Void)? = nil
     ) {
         showResults(
             response: response,
             at: previewAnchor,
             isStreaming: true,
             onSelect: onSelect,
-            onUserDismiss: onUserDismiss
+            onUserDismiss: onUserDismiss,
+            onPresented: onPresented
         )
     }
 
@@ -166,7 +170,8 @@ final class GrammarFloatingIndicator {
         at previewAnchor: NSPoint?,
         isStreaming: Bool,
         onSelect: @escaping (String) -> Void,
-        onUserDismiss: (() -> Void)?
+        onUserDismiss: (() -> Void)?,
+        onPresented: (() -> Void)? = nil
     ) {
         DispatchQueue.main.async {
             self.dismiss()
@@ -206,6 +211,7 @@ final class GrammarFloatingIndicator {
             self.window = panel
             self.anchorPoint = nil
             self.installDismissMonitors()
+            onPresented?()
         }
     }
 

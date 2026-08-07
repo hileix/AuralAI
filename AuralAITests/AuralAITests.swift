@@ -23,8 +23,33 @@ struct AuralAITests {
 
     @Test func focusedInputContentRequiresNonWhitespaceText() {
         #expect(!FocusedTextInputService.hasMeaningfulContent(""))
+        #expect(!FocusedTextInputService.hasMeaningfulContent(" "))
         #expect(!FocusedTextInputService.hasMeaningfulContent("  \n"))
+        #expect(!FocusedTextInputService.hasMeaningfulContent("\t\n "))
         #expect(FocusedTextInputService.hasMeaningfulContent("Hello"))
+        #expect(FocusedTextInputService.hasMeaningfulContent(" Hello "))
+    }
+
+    @Test @MainActor func grammarInputBadgeCannotHideWhileLoading() throws {
+        let badge = GrammarInputBadge.shared
+        defer {
+            badge.stopLoading()
+            badge.hide()
+        }
+
+        badge.show(at: NSPoint(x: 100, y: 100), onClick: {})
+        let visibleCenter = try #require(badge.centerPoint)
+        badge.showLoading()
+
+        badge.hide()
+        badge.show(at: NSPoint(x: 300, y: 300), onClick: {})
+
+        #expect(badge.isLoading)
+        #expect(badge.centerPoint == visibleCenter)
+
+        badge.stopLoading()
+        badge.hide()
+        #expect(badge.centerPoint == nil)
     }
 
     @Test func grammarHistoryPersistsMoreThanOneHundredEntries() throws {

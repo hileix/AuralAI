@@ -144,11 +144,12 @@ final class FocusedTextInputService {
         }
 
         if let value = copyAttribute(kAXSelectedTextAttribute, from: element) {
-            if let text = value as? String, !text.isEmpty {
+            if let text = value as? String, Self.hasMeaningfulContent(text) {
                 logger.notice("Read selected text using AXSelectedText length=\(text.count)")
                 return FocusedTextSelection(text: text, range: selectedRange)
             }
-            if let attributedText = value as? NSAttributedString, attributedText.length > 0 {
+            if let attributedText = value as? NSAttributedString,
+               Self.hasMeaningfulContent(attributedText.string) {
                 logger.notice("Read selected text using attributed AXSelectedText length=\(attributedText.length)")
                 return FocusedTextSelection(text: attributedText.string, range: selectedRange)
             }
@@ -170,7 +171,9 @@ final class FocusedTextInputService {
             rangeValue,
             &result
         )
-        guard error == .success, let text = result as? String, !text.isEmpty else {
+        guard error == .success,
+              let text = result as? String,
+              Self.hasMeaningfulContent(text) else {
             logger.error("Could not read selected text for range length=\(range.length)")
             return nil
         }
@@ -193,11 +196,12 @@ final class FocusedTextInputService {
         )
         guard error == .success else { return nil }
 
-        if let text = result as? String, !text.isEmpty {
+        if let text = result as? String, Self.hasMeaningfulContent(text) {
             logger.notice("Read selected text using AX text markers length=\(text.count)")
             return FocusedTextSelection(text: text, range: nil)
         }
-        if let attributedText = result as? NSAttributedString, attributedText.length > 0 {
+        if let attributedText = result as? NSAttributedString,
+           Self.hasMeaningfulContent(attributedText.string) {
             logger.notice("Read selected text using attributed AX text markers length=\(attributedText.length)")
             return FocusedTextSelection(text: attributedText.string, range: nil)
         }
