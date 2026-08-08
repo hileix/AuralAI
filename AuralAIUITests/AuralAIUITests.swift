@@ -30,17 +30,24 @@ final class AuralAIUITests: XCTestCase {
 
         let speechTab = app.buttons["settings.tab.speech"]
         let grammarTab = app.buttons["settings.tab.grammar"]
+        let translationTab = app.buttons["settings.tab.translation"]
         let historyTab = app.buttons["settings.tab.history"]
+        let translationHistoryTab = app.buttons["settings.tab.translationHistory"]
 
         XCTAssertTrue(speechTab.waitForExistence(timeout: 3))
         XCTAssertTrue(app.windows["AuralAI Debug Settings"].exists)
         XCTAssertTrue(app.staticTexts["AuralAI Debug"].exists)
         XCTAssertTrue(grammarTab.exists)
+        XCTAssertTrue(translationTab.exists)
         XCTAssertTrue(historyTab.exists)
+        XCTAssertTrue(translationHistoryTab.exists)
 
         grammarTab.click()
         XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 2))
-        XCTAssertTrue(app.switches["settings.grammar.showInputBadge"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.grammar.showInputBadge"].exists)
+
+        translationTab.click()
+        XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 2))
 
         let grammarScreenshot = XCTAttachment(screenshot: app.screenshot())
         grammarScreenshot.name = "Grammar Settings"
@@ -52,6 +59,11 @@ final class AuralAIUITests: XCTestCase {
 
         historyTab.click()
         XCTAssertTrue(app.descendants(matching: .any)["settings.history"].waitForExistence(timeout: 2))
+
+        translationHistoryTab.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.translationHistory"].waitForExistence(timeout: 2)
+        )
     }
 
     @MainActor
@@ -140,6 +152,35 @@ final class AuralAIUITests: XCTestCase {
         XCTAssertTrue(option.exists)
         XCTAssertFalse(option.isEnabled)
         addScreenshot(of: app.dialogs.firstMatch, named: "Grammar Results - Streaming")
+    }
+
+    @MainActor
+    func testTranslationResultsAreIndependentFromGrammarResults() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_TRANSLATION_STATE"] = "results"
+        app.launch()
+
+        let results = app.descendants(matching: .any)["translation.results"]
+        XCTAssertTrue(results.waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons.matching(identifier: "grammar.results.option.1").count, 0)
+        XCTAssertTrue(app.descendants(matching: .any)["translation.results.pin"].exists)
+    }
+
+    @MainActor
+    func testTranslationResultSurvivesPreviousErrorDismissTimer() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["AURALAI_UI_TEST_TRANSLATION_STATE"] = "error-then-results"
+        app.launch()
+
+        let results = app.descendants(matching: .any)["translation.results"]
+        XCTAssertTrue(results.waitForExistence(timeout: 3))
+
+        let timerExpectation = expectation(description: "Previous error timer elapsed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            timerExpectation.fulfill()
+        }
+        wait(for: [timerExpectation], timeout: 2)
+        XCTAssertTrue(results.exists)
     }
 
     @MainActor

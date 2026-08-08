@@ -5,26 +5,13 @@
 
 import Foundation
 
-struct GrammarAIResponse {
-    let translation: String?
+struct GrammarOptimizationResult {
     let errors: String?
     let options: [String]
 }
 
 final class GrammarAIService {
     static let shared = GrammarAIService()
-
-    private static let minimumResponseTokens = 1_024
-    private static let maximumResponseTokens = 8_192
-    private static let responseTokenStep = 64
-    private static let responseFormatOverhead = 192
-    private static let responseExpansionNumerator = 11
-    private static let responseExpansionDenominator = 2
-    private static let minimumReasoningTokens = 768
-    private static let reasoningExpansionMultiplier = 2
-    private static let conservativeContextWindowTokens = 32_768
-    private static let contextSafetyMarginTokens = 512
-    private static let messageFormatOverheadTokens = 32
 
     private init() {}
 
@@ -342,83 +329,27 @@ final class GrammarAIService {
     }
 
     static func dynamicMaxTokens(for text: String) -> Int {
-        let estimatedInputTokens = estimatedTokenCount(for: text)
-        let visibleResponseTokens = responseFormatOverhead
-            + (estimatedInputTokens * responseExpansionNumerator
-                + responseExpansionDenominator - 1) / responseExpansionDenominator
-        let reasoningTokens = max(
-            minimumReasoningTokens,
-            estimatedInputTokens * reasoningExpansionMultiplier
-        )
-        let requestedTokens = visibleResponseTokens + reasoningTokens
-        let roundedTokens = ((requestedTokens + responseTokenStep - 1) / responseTokenStep)
-            * responseTokenStep
-        return min(max(roundedTokens, minimumResponseTokens), maximumResponseTokens)
+        AIResponseTokenBudget.dynamicMaxTokens(for: text)
     }
 
     static func maximumAllowedResponseTokens(for text: String, systemPrompt: String) throws -> Int {
-        let estimatedPromptTokens = estimatedTokenCount(for: systemPrompt)
-            + estimatedTokenCount(for: text)
-            + messageFormatOverheadTokens
-        let availableResponseTokens = conservativeContextWindowTokens
-            - estimatedPromptTokens
-            - contextSafetyMarginTokens
-        let roundedAvailableTokens = (availableResponseTokens / responseTokenStep)
-            * responseTokenStep
-
-        guard roundedAvailableTokens >= minimumResponseTokens else {
+        guard let tokenLimit = AIResponseTokenBudget.maximumAllowedResponseTokens(
+            for: text,
+            systemPrompt: systemPrompt
+        ) else {
             throw GrammarAIError.inputTooLong
         }
-
-        return min(roundedAvailableTokens, maximumResponseTokens)
+        return tokenLimit
     }
 
     private static func retryMaxTokens(
         after tokenLimit: Int,
         maximumAllowedTokens: Int
     ) -> Int {
-        min(tokenLimit * 2, maximumAllowedTokens)
-    }
-
-    private static func estimatedTokenCount(for text: String) -> Int {
-        var cjkCharacters = 0
-        var alphanumericCharacters = 0
-        var punctuationCharacters = 0
-        var otherCharacters = 0
-
-        for scalar in text.unicodeScalars {
-            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                continue
-            }
-
-            if isCJK(scalar) {
-                cjkCharacters += 1
-            } else if CharacterSet.alphanumerics.contains(scalar) {
-                alphanumericCharacters += 1
-            } else if CharacterSet.punctuationCharacters.contains(scalar) {
-                punctuationCharacters += 1
-            } else {
-                otherCharacters += 1
-            }
-        }
-
-        let estimatedTokens = cjkCharacters
-            + (alphanumericCharacters + 3) / 4
-            + (punctuationCharacters + 1) / 2
-            + otherCharacters
-        return max(estimatedTokens, 1)
-    }
-
-    private static func isCJK(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.value {
-        case 0x3400...0x4DBF,
-             0x4E00...0x9FFF,
-             0xF900...0xFAFF,
-             0x20000...0x2FA1F:
-            return true
-        default:
-            return false
-        }
+        AIResponseTokenBudget.retryMaxTokens(
+            after: tokenLimit,
+            maximumAllowedTokens: maximumAllowedTokens
+        )
     }
 
     private func collectData(from bytes: URLSession.AsyncBytes) async throws -> Data {
@@ -449,20 +380,19 @@ final class GrammarAIService {
         return data
     }
 
-    func parseResponse(from response: String) -> GrammarAIResponse {
+    func parseResponse(from response: String) -> GrammarOptimizationResult {
         parseResponse(from: response, fallbackToRawResponse: true)
     }
 
-    func parsePartialResponse(from response: String) -> GrammarAIResponse? {
+    func parsePartialResponse(from response: String) -> GrammarOptimizationResult? {
         let parsed = parseResponse(from: response, fallbackToRawResponse: false)
-        guard parsed.translation != nil || parsed.errors != nil || !parsed.options.isEmpty else {
+        guard parsed.errors != nil || !parsed.options.isEmpty else {
             return nil
         }
         return parsed
     }
 
-    private func parseResponse(from response: String, fallbackToRawResponse: Bool) -> GrammarAIResponse {
-        var translation: String?
+    private func parseResponse(from response: String, fallbackToRawResponse: Bool) -> GrammarOptimizationResult {
         var errors: String?
         var options: [String] = []
 
@@ -470,7 +400,6 @@ final class GrammarAIService {
         var currentValue = ""
 
         let prefixMap: [(field: String, prefixes: [String])] = [
-            ("translation", ["翻译：", "翻译:"]),
             ("errors", ["错误：", "错误:"]),
             ("option", ["选项1：", "选项1:", "选项2：", "选项2:", "选项3：", "选项3:"]),
             ("improved", ["改进：", "改进:"])
@@ -480,8 +409,6 @@ final class GrammarAIService {
             let value = currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty, let field = currentField else { return }
             switch field {
-            case "translation":
-                translation = value
             case "errors":
                 errors = value
             case "option", "improved":
@@ -516,7 +443,7 @@ final class GrammarAIService {
             options = [response.trimmingCharacters(in: .whitespacesAndNewlines)]
         }
 
-        return GrammarAIResponse(translation: translation, errors: errors, options: options)
+        return GrammarOptimizationResult(errors: errors, options: options)
     }
 }
 

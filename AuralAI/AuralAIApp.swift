@@ -48,15 +48,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let hotkeyService = GlobalHotkeyService.shared
     private let grammarHotkeyService = GrammarHotkeyService.shared
+    private let translationHotkeyService = TranslationHotkeyService.shared
     private let clipboardMonitor = ClipboardMonitor.shared
     private let ttsService = TTSService.shared
     private let grammarAIService = GrammarAIService.shared
+    private let translationService = TranslationService.shared
     private let grammarIndicator = GrammarFloatingIndicator.shared
+    private let translationIndicator = TranslationFloatingIndicator.shared
     private let focusedTextInputService = FocusedTextInputService.shared
     private let grammarInputBadge = GrammarInputBadge.shared
     private let grammarHistoryStore = GrammarHistoryStore.shared
+    private let translationHistoryStore = TranslationHistoryStore.shared
     private let settings = SpeechSettings.shared
     private let grammarSettings = GrammarSettings.shared
+    private let translationSettings = TranslationSettings.shared
     private let persistenceController = PersistenceController.shared
     private var grammarSourceApp: NSRunningApplication?
     private var grammarSourceInput: FocusedTextInput?
@@ -65,6 +70,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var grammarRequestTask: Task<Void, Never>?
     private var grammarRequestID: UUID?
     private var grammarResultsRequestID: UUID?
+    private var translationRequestAnchor: NSPoint?
+    private var translationRequestTask: Task<Void, Never>?
+    private var translationRequestID: UUID?
+    private var translationCaptureID: UUID?
+    private var translationLoadingUsesExistingBadge = false
+    private var translationBadgeStartedLoading = false
     private var selectionMouseMonitor: Any?
     private var applicationActivationObserver: NSObjectProtocol?
     private var clipboardSelectionBadgeVisible = false
@@ -80,6 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observeSettings()
         setupHotkeyHandler()
         setupGrammarHotkeyHandler()
+        setupTranslationHotkeyHandler()
         setupFocusedTextInputHandler()
         setupSelectionMouseMonitor()
         setupApplicationSwitchMonitor()
@@ -96,11 +108,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         configureUITestAppearanceIfNeeded()
         configureGrammarHistoryPreviewIfNeeded()
+        configureTranslationHistoryPreviewIfNeeded()
         showGrammarUIPreviewIfNeeded()
+        showTranslationUIPreviewIfNeeded()
         #endif
 
         print("✅ AuralAI started. Press \(settings.hotkeyDisplayString) to speak selected text.")
         print("✅ Grammar improvement available with \(grammarSettings.hotkeyDisplayString).")
+        print("✅ Translation available with \(translationSettings.hotkeyDisplayString).")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -136,8 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let response = GrammarAIResponse(
-            translation: "A focused interface makes everyday work feel effortless.",
+        let response = GrammarOptimizationResult(
             errors: "The original sentence needs an article and more natural word order.",
             options: [
                 "A focused interface makes everyday work feel effortless.",
@@ -149,6 +163,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 originalText: "Focused interface make everyday work feel effortless.",
                 response: response,
                 timestamp: Date()
+            )
+        ])
+    }
+
+    private func configureTranslationHistoryPreviewIfNeeded() {
+        guard ProcessInfo.processInfo.environment["AURALAI_UI_TEST_TRANSLATION_HISTORY_PREVIEW"] == "1" else {
+            return
+        }
+        translationHistoryStore.usePreviewEntries([
+            TranslationHistoryEntry(
+                result: TranslationResult(
+                    originalText: "A focused interface makes everyday work feel effortless.",
+                    translatedText: "专注的界面让日常工作轻松自然。"
+                )
             )
         ])
     }
@@ -167,8 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.grammarIndicator.showLoading(at: anchor)
             case "results":
                 self.grammarIndicator.showResults(
-                    response: GrammarAIResponse(
-                        translation: "A focused interface makes everyday work feel effortless.",
+                    response: GrammarOptimizationResult(
                         errors: "The original sentence needs an article and more natural word order.",
                         options: [
                             "A focused interface makes everyday work feel effortless.",
@@ -181,8 +208,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             case "streaming":
                 self.grammarIndicator.showStreamingResults(
-                    response: GrammarAIResponse(
-                        translation: "A focused interface makes everyday work feel effortless.",
+                    response: GrammarOptimizationResult(
                         errors: "The original sentence needs an article and more natural word order.",
                         options: [
                             "A focused interface makes everyday work feel"
@@ -206,6 +232,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+
+    private func showTranslationUIPreviewIfNeeded() {
+        guard let state = ProcessInfo.processInfo.environment["AURALAI_UI_TEST_TRANSLATION_STATE"] else {
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let screenFrame = NSScreen.main?.visibleFrame ?? .zero
+            let anchor = NSPoint(x: screenFrame.midX, y: screenFrame.midY)
+            switch state {
+            case "loading":
+                self.translationIndicator.showLoading(at: anchor)
+            case "results":
+                self.translationIndicator.showResults(
+                    result: TranslationResult(
+                        originalText: "A focused interface makes everyday work feel effortless.",
+                        translatedText: "专注的界面让日常工作轻松自然。"
+                    ),
+                    at: anchor
+                )
+            case "error-then-results":
+                self.translationIndicator.showError(at: anchor)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.translationIndicator.showResults(
+                        result: TranslationResult(
+                            originalText: "A focused interface makes everyday work feel effortless.",
+                            translatedText: "专注的界面让日常工作轻松自然。"
+                        ),
+                        at: anchor
+                    )
+                }
+            default:
+                break
+            }
+        }
+    }
     #endif
 
     /// Setup global hotkey handler
@@ -219,6 +280,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupGrammarHotkeyHandler() {
         grammarHotkeyService.onHotkeyTriggered = { [weak self] in
             self?.handleGrammarGlobalHotkey()
+        }
+    }
+
+    private func setupTranslationHotkeyHandler() {
+        translationHotkeyService.onHotkeyTriggered = { [weak self] in
+            self?.handleTranslationGlobalHotkey()
         }
     }
 
@@ -468,6 +535,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyService.onAccessibilityPermissionGranted = { [weak self] in
             guard let self else { return }
             self.grammarHotkeyService.refreshRegistration()
+            self.translationHotkeyService.refreshRegistration()
             self.focusedTextInputService.refreshAccessibilityContext()
         }
     }
@@ -515,6 +583,125 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("❌ No text found in clipboard")
             }
         }
+    }
+
+    private func handleTranslationGlobalHotkey() {
+        guard translationCaptureID == nil else { return }
+
+        let anchor = selectionBadgeAnchor ?? NSEvent.mouseLocation
+        // Reuse the existing selection Logo for translation loading. If another
+        // workflow is already using its loading state, leave that state alone.
+        let existingBadge = grammarInputBadge.centerPoint != nil
+        let badgeWasLoading = grammarInputBadge.isLoading
+        translationLoadingUsesExistingBadge = existingBadge
+        translationBadgeStartedLoading = existingBadge
+            && (!badgeWasLoading || translationBadgeStartedLoading)
+        selectionProbeSuppressedUntil = Date().addingTimeInterval(1)
+        clipboardSelectionBadgeVisible = false
+        cancelActiveTranslationRequest()
+        translationIndicator.dismiss()
+        translationRequestAnchor = anchor
+
+        if let selection = focusedTextInputService.captureCurrentSelection(),
+           FocusedTextInputService.hasMeaningfulContent(selection.text) {
+            triggerTranslation(for: selection.text, anchor: anchor)
+            return
+        }
+
+        let pasteboardContents = clipboardMonitor.snapshotContents()
+        let previousChangeCount = clipboardMonitor.currentChangeCount()
+        let captureID = UUID()
+        translationCaptureID = captureID
+        showTranslationLoading(at: anchor)
+
+        guard translationHotkeyService.copySelectedText() else {
+            translationCaptureID = nil
+            finishTranslationLoading()
+            translationIndicator.showError(at: anchor)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.translationCaptureID == captureID else { return }
+            let clipboardChanged = self.clipboardMonitor.currentChangeCount() != previousChangeCount
+            let text = clipboardChanged ? self.clipboardMonitor.readClipboardText() : nil
+            if clipboardChanged {
+                self.clipboardMonitor.restoreContents(pasteboardContents)
+            }
+            self.translationCaptureID = nil
+
+            guard let text, FocusedTextInputService.hasMeaningfulContent(text) else {
+                self.finishTranslationLoading()
+                self.translationIndicator.showError(at: anchor)
+                return
+            }
+            self.triggerTranslation(for: text, anchor: anchor)
+        }
+    }
+
+    private func triggerTranslation(for text: String, anchor: NSPoint) {
+        cancelActiveTranslationRequest()
+        translationRequestAnchor = anchor
+
+        if let cachedResult = translationHistoryStore.result(matching: text) {
+            finishTranslationLoading()
+            translationIndicator.showResults(result: cachedResult, at: anchor)
+            return
+        }
+
+        let requestID = UUID()
+        translationRequestID = requestID
+        showTranslationLoading(at: anchor)
+        translationRequestTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await self.translationService.translate(text)
+                await MainActor.run {
+                    guard self.translationRequestID == requestID else { return }
+                    self.translationHistoryStore.add(result)
+                    self.finishTranslationLoading()
+                    self.translationIndicator.showResults(result: result, at: self.translationRequestAnchor)
+                    self.translationRequestTask = nil
+                    self.translationRequestID = nil
+                    self.translationRequestAnchor = nil
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run {
+                    guard self.translationRequestID == requestID else { return }
+                    self.translationRequestTask = nil
+                    self.translationRequestID = nil
+                    self.finishTranslationLoading()
+                    self.translationIndicator.showError(at: self.translationRequestAnchor)
+                    self.translationRequestAnchor = nil
+                    self.logger.error("Translation failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    private func showTranslationLoading(at anchor: NSPoint) {
+        if translationLoadingUsesExistingBadge {
+            if translationBadgeStartedLoading {
+                grammarInputBadge.showLoading()
+            }
+            return
+        }
+        translationIndicator.showLoading(at: anchor)
+    }
+
+    private func finishTranslationLoading() {
+        guard translationBadgeStartedLoading else { return }
+        grammarInputBadge.stopLoading()
+        translationBadgeStartedLoading = false
+    }
+
+    private func cancelActiveTranslationRequest() {
+        translationRequestTask?.cancel()
+        translationRequestTask = nil
+        translationRequestID = nil
+        translationRequestAnchor = nil
     }
 
     /// Handle grammar improvement hotkey press

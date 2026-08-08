@@ -86,8 +86,7 @@ struct AuralAITests {
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let store = GrammarHistoryStore(fileURL: fileURL)
-        let response = GrammarAIResponse(
-            translation: "Translation",
+        let response = GrammarOptimizationResult(
             errors: "An error",
             options: ["Suggestion"]
         )
@@ -109,8 +108,7 @@ struct AuralAITests {
         let fileURL = directoryURL.appendingPathComponent("GrammarHistory.json")
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let response = GrammarAIResponse(
-            translation: nil,
+        let response = GrammarOptimizationResult(
             errors: nil,
             options: ["Suggestion"]
         )
@@ -136,16 +134,14 @@ struct AuralAITests {
         let store = GrammarHistoryStore(fileURL: fileURL)
         store.add(
             originalText: "  Improve this sentence.\n",
-            response: GrammarAIResponse(
-                translation: nil,
+            response: GrammarOptimizationResult(
                 errors: "Older result",
                 options: ["Older suggestion"]
             )
         )
         store.add(
             originalText: "Improve this sentence.",
-            response: GrammarAIResponse(
-                translation: nil,
+            response: GrammarOptimizationResult(
                 errors: "Newest result",
                 options: ["Newest suggestion"]
             )
@@ -189,6 +185,100 @@ struct AuralAITests {
         let parsed = GrammarAIService.shared.parsePartialResponse(from: "Still generating")
 
         #expect(parsed == nil)
+    }
+
+    @Test func grammarResponseDoesNotExposeTranslation() {
+        let parsed = GrammarAIService.shared.parseResponse(
+            from: """
+                翻译：这段内容不应出现在语法结果中
+                错误：Missing an article.
+                选项1：This is the improved sentence.
+                """
+        )
+
+        #expect(parsed.errors == "Missing an article.")
+        #expect(parsed.options == ["This is the improved sentence."])
+    }
+
+    @Test func parsesTranslationResponseIndependently() throws {
+        let result = try TranslationService.shared.parseResponse(
+            "翻译：这是一个自然的翻译。",
+            originalText: "This is a natural translation."
+        )
+
+        #expect(result.originalText == "This is a natural translation.")
+        #expect(result.translatedText == "这是一个自然的翻译。")
+    }
+
+    @Test func rejectsEmptyTranslationResponse() {
+        #expect(throws: TranslationError.self) {
+            try TranslationService.shared.parseResponse(
+                "翻译：   ",
+                originalText: "This response should not be cached."
+            )
+        }
+    }
+
+    @Test func rejectsTruncatedTranslationAPIResponses() throws {
+        let openAIData = try #require(
+            #"{"choices":[{"message":{"content":"partial"},"finish_reason":"length"}]}"#
+                .data(using: .utf8)
+        )
+        let directData = try #require(
+            #"{"content":[{"text":"partial"}],"stop_reason":"max_tokens"}"#
+                .data(using: .utf8)
+        )
+
+        #expect(throws: TranslationError.self) {
+            try TranslationService.shared.parseOpenAIResponse(openAIData)
+        }
+        #expect(throws: TranslationError.self) {
+            try TranslationService.shared.parseDirectResponse(directData)
+        }
+    }
+
+    @Test func translationResponseTokenBudgetScalesWithInputLength() {
+        let shortBudget = TranslationService.dynamicMaxTokens(for: "Translate this sentence.")
+        let longBudget = TranslationService.dynamicMaxTokens(
+            for: String(repeating: "这是一段需要翻译的长文本。", count: 500)
+        )
+
+        #expect(shortBudget == 1_024)
+        #expect(longBudget > shortBudget)
+        #expect(longBudget == 8_192)
+    }
+
+    @Test func translationHistoryPersistsDeletesAndClearsEntries() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("TranslationHistory.json")
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let store = TranslationHistoryStore(fileURL: fileURL)
+        store.add(TranslationResult(originalText: "Hello", translatedText: "你好"))
+        store.add(TranslationResult(originalText: "Goodbye", translatedText: "再见"))
+
+        let reloadedStore = TranslationHistoryStore(fileURL: fileURL)
+        #expect(reloadedStore.entries.map(\.originalText) == ["Goodbye", "Hello"])
+        #expect(reloadedStore.result(matching: " Hello ")?.translatedText == "你好")
+
+        let entry = try #require(reloadedStore.entries.first)
+        reloadedStore.delete(entry)
+        #expect(reloadedStore.entries.map(\.originalText) == ["Hello"])
+
+        reloadedStore.clear()
+        #expect(TranslationHistoryStore(fileURL: fileURL).entries.isEmpty)
+    }
+
+    @Test func invalidLegacyGrammarHistoryStartsEmpty() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("GrammarOptimizationHistory.json")
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try Data(#"[{"legacy":"history"}]"#.utf8).write(to: fileURL)
+
+        #expect(GrammarHistoryStore(fileURL: fileURL).entries.isEmpty)
     }
 
     @Test func grammarResponseTokenBudgetScalesWithInputLength() {

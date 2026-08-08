@@ -18,16 +18,20 @@ struct SettingsView: View {
     private enum SettingsTab {
         case speech
         case grammar
+        case translation
         case history
+        case translationHistory
     }
     #endif
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var settings = SpeechSettings.shared
     @StateObject private var grammarSettings = GrammarSettings.shared
+    @StateObject private var translationSettings = TranslationSettings.shared
     @StateObject private var ttsService = TTSService.shared
     #if os(macOS)
     @StateObject private var grammarHistoryStore = GrammarHistoryStore.shared
+    @StateObject private var translationHistoryStore = TranslationHistoryStore.shared
     #endif
 
     @State private var testText = "This is a test of the speech settings."
@@ -51,6 +55,16 @@ struct SettingsView: View {
     @State private var draftGrammarInputBadgeVisible: Bool
     @State private var grammarHotkeyInput: String
     @State private var initialGrammarSettingsSnapshot: GrammarSettings.CodableSettings
+    @State private var draftTranslationPrompt: String
+    @State private var draftTranslationModel: String
+    @State private var draftTranslationBaseURL: String
+    @State private var draftTranslationAPIKey: String
+    @State private var draftTranslationAPIModeRawValue: String
+    @State private var draftTranslationMaxTokens: Int
+    @State private var draftTranslationHotkeyKey: String
+    @State private var draftTranslationHotkeyModifiersRawValue: Int
+    @State private var translationHotkeyInput: String
+    @State private var initialTranslationSettingsSnapshot: TranslationSettings.CodableSettings
     @State private var validationMessage: String?
     #if os(macOS)
     @State private var selectedTab: SettingsTab = .speech
@@ -63,6 +77,7 @@ struct SettingsView: View {
         self.onDone = onDone
         let currentSettings = SpeechSettings.shared.codable
         let currentGrammarSettings = GrammarSettings.shared.codable
+        let currentTranslationSettings = TranslationSettings.shared.codable
         _draftVoiceIdentifier = State(initialValue: currentSettings.voiceIdentifier)
         _draftRate = State(initialValue: currentSettings.rate)
         _draftPitch = State(initialValue: currentSettings.pitch)
@@ -83,6 +98,16 @@ struct SettingsView: View {
         _draftGrammarInputBadgeVisible = State(initialValue: currentGrammarSettings.isInputBadgeVisible)
         _grammarHotkeyInput = State(initialValue: currentGrammarSettings.hotkeyKey)
         _initialGrammarSettingsSnapshot = State(initialValue: currentGrammarSettings)
+        _draftTranslationPrompt = State(initialValue: currentTranslationSettings.systemPrompt)
+        _draftTranslationModel = State(initialValue: currentTranslationSettings.modelName)
+        _draftTranslationBaseURL = State(initialValue: currentTranslationSettings.baseURL)
+        _draftTranslationAPIKey = State(initialValue: currentTranslationSettings.apiKey)
+        _draftTranslationAPIModeRawValue = State(initialValue: currentTranslationSettings.apiMode)
+        _draftTranslationMaxTokens = State(initialValue: currentTranslationSettings.maxTokens)
+        _draftTranslationHotkeyKey = State(initialValue: currentTranslationSettings.hotkeyKey)
+        _draftTranslationHotkeyModifiersRawValue = State(initialValue: currentTranslationSettings.hotkeyModifiers)
+        _translationHotkeyInput = State(initialValue: currentTranslationSettings.hotkeyKey)
+        _initialTranslationSettingsSnapshot = State(initialValue: currentTranslationSettings)
     }
 
     var body: some View {
@@ -123,8 +148,10 @@ struct SettingsView: View {
 
         settings.update(from: draftSettings)
         grammarSettings.update(from: draftGrammarSettings)
+        translationSettings.update(from: draftTranslationSettings)
         initialSettingsSnapshot = draftSettings
         initialGrammarSettingsSnapshot = draftGrammarSettings
+        initialTranslationSettingsSnapshot = draftTranslationSettings
         validationMessage = nil
     }
 
@@ -160,6 +187,19 @@ struct SettingsView: View {
         grammarHotkeyInput = defaultSettings.hotkeyKey
     }
 
+    private func resetTranslationSettings() {
+        let defaultSettings = TranslationSettings.CodableSettings.defaults
+        draftTranslationPrompt = defaultSettings.systemPrompt
+        draftTranslationModel = defaultSettings.modelName
+        draftTranslationBaseURL = defaultSettings.baseURL
+        draftTranslationAPIKey = defaultSettings.apiKey
+        draftTranslationAPIModeRawValue = defaultSettings.apiMode
+        draftTranslationMaxTokens = defaultSettings.maxTokens
+        draftTranslationHotkeyKey = defaultSettings.hotkeyKey
+        draftTranslationHotkeyModifiersRawValue = defaultSettings.hotkeyModifiers
+        translationHotkeyInput = defaultSettings.hotkeyKey
+    }
+
     private func closeView() {
         if let onDone {
             onDone()
@@ -193,13 +233,32 @@ struct SettingsView: View {
         )
     }
 
+    private var draftTranslationSettings: TranslationSettings.CodableSettings {
+        TranslationSettings.CodableSettings(
+            systemPrompt: draftTranslationPrompt,
+            maxTokens: draftTranslationMaxTokens,
+            modelName: draftTranslationModel,
+            baseURL: draftTranslationBaseURL,
+            apiKey: draftTranslationAPIKey,
+            apiMode: draftTranslationAPIModeRawValue,
+            hotkeyKey: draftTranslationHotkeyKey,
+            hotkeyModifiers: draftTranslationHotkeyModifiersRawValue
+        )
+    }
+
     private var hasChanges: Bool {
-        draftSettings != initialSettingsSnapshot || draftGrammarSettings != initialGrammarSettingsSnapshot
+        draftSettings != initialSettingsSnapshot
+            || draftGrammarSettings != initialGrammarSettingsSnapshot
+            || draftTranslationSettings != initialTranslationSettingsSnapshot
     }
 
     private var hasDuplicateHotkeys: Bool {
-        draftHotkeyKey.caseInsensitiveCompare(draftGrammarHotkeyKey) == .orderedSame
-            && draftHotkeyModifiersRawValue == draftGrammarHotkeyModifiersRawValue
+        let shortcuts = [
+            "\(draftHotkeyModifiersRawValue):\(draftHotkeyKey.uppercased())",
+            "\(draftGrammarHotkeyModifiersRawValue):\(draftGrammarHotkeyKey.uppercased())",
+            "\(draftTranslationHotkeyModifiersRawValue):\(draftTranslationHotkeyKey.uppercased())"
+        ]
+        return Set(shortcuts).count != shortcuts.count
     }
 
     private var previewVoice: AVSpeechSynthesisVoice {
@@ -273,6 +332,13 @@ struct SettingsView: View {
         GrammarSettings.displayString(
             key: draftGrammarHotkeyKey,
             modifiers: GrammarSettings.HotkeyModifier(rawValue: draftGrammarHotkeyModifiersRawValue)
+        )
+    }
+
+    private var draftTranslationHotkeyDisplayString: String {
+        GrammarSettings.displayString(
+            key: draftTranslationHotkeyKey,
+            modifiers: TranslationSettings.HotkeyModifier(rawValue: draftTranslationHotkeyModifiersRawValue)
         )
     }
 
@@ -479,8 +545,12 @@ struct SettingsView: View {
                         macOSSpeechSettings
                     case .grammar:
                         macOSGrammarSettings
+                    case .translation:
+                        macOSTranslationSettings
                     case .history:
                         macOSGrammarHistory
+                    case .translationHistory:
+                        macOSTranslationHistory
                     }
                 }
             }
@@ -489,12 +559,18 @@ struct SettingsView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(Color(red: 0.12, green: 0.49, blue: 0.91))
         .confirmationDialog(
-            copy.clearHistoryConfirmationTitle,
+            selectedTab == .translationHistory
+                ? copy.clearTranslationHistoryConfirmationTitle
+                : copy.clearHistoryConfirmationTitle,
             isPresented: $isShowingClearHistoryConfirmation,
             titleVisibility: .visible
         ) {
             Button(copy.clearHistoryButton, role: .destructive) {
-                grammarHistoryStore.clear()
+                if selectedTab == .translationHistory {
+                    translationHistoryStore.clear()
+                } else {
+                    grammarHistoryStore.clear()
+                }
             }
             Button(copy.cancelButton, role: .cancel) {}
         } message: {
@@ -547,9 +623,22 @@ struct SettingsView: View {
                 )
 
                 macOSSidebarButton(
+                    title: copy.translationTab,
+                    systemImage: "character.book.closed",
+                    shortcut: draftTranslationHotkeyDisplayString,
+                    tab: .translation
+                )
+
+                macOSSidebarButton(
                     title: copy.historyTab,
                     systemImage: "clock.arrow.circlepath",
                     tab: .history
+                )
+
+                macOSSidebarButton(
+                    title: copy.translationHistoryTab,
+                    systemImage: "clock.badge.checkmark",
+                    tab: .translationHistory
                 )
             }
             .padding(.horizontal, 10)
@@ -618,8 +707,12 @@ struct SettingsView: View {
             return "settings.tab.speech"
         case .grammar:
             return "settings.tab.grammar"
+        case .translation:
+            return "settings.tab.translation"
         case .history:
             return "settings.tab.history"
+        case .translationHistory:
+            return "settings.tab.translationHistory"
         }
     }
 
@@ -635,7 +728,7 @@ struct SettingsView: View {
 
             Spacer()
 
-            if selectedTab == .history {
+            if selectedTab == .history || selectedTab == .translationHistory {
                 Button(role: .destructive) {
                     isShowingClearHistoryConfirmation = true
                 } label: {
@@ -643,7 +736,11 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-                .disabled(grammarHistoryStore.entries.isEmpty)
+                .disabled(
+                    selectedTab == .translationHistory
+                        ? translationHistoryStore.entries.isEmpty
+                        : grammarHistoryStore.entries.isEmpty
+                )
             } else {
                 Button {
                     saveChanges()
@@ -666,8 +763,12 @@ struct SettingsView: View {
             return copy.speechTab
         case .grammar:
             return copy.grammarTab
+        case .translation:
+            return copy.translationTab
         case .history:
             return copy.historyTab
+        case .translationHistory:
+            return copy.translationHistoryTab
         }
     }
 
@@ -944,6 +1045,153 @@ struct SettingsView: View {
         .accessibilityIdentifier("settings.history")
     }
 
+    private var macOSTranslationSettings: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                macOSSection(title: copy.translationShortcutSection, systemImage: "command") {
+                    macOSSettingsRow(title: copy.shortcutKeyLabel) {
+                        HStack(spacing: 10) {
+                            TextField(copy.shortcutKeyLabel, text: $translationHotkeyInput)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.center)
+                                .frame(width: 52)
+                                .onChange(of: translationHotkeyInput) { _, newValue in
+                                    let normalized = GrammarSettings.supportedHotkeyKey(from: newValue)
+                                        ?? TranslationSettings.defaultHotkeyKey
+                                    translationHotkeyInput = normalized
+                                    draftTranslationHotkeyKey = normalized
+                                }
+
+                            Picker(copy.modifierLabel, selection: $draftTranslationHotkeyModifiersRawValue) {
+                                ForEach(grammarModifierOptions, id: \.value) { option in
+                                    Text(option.label).tag(option.value)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 210)
+                        }
+                    }
+
+                    macOSSettingsRow(title: copy.currentShortcutLabel) {
+                        shortcutBadge(draftTranslationHotkeyDisplayString, isError: hasDuplicateHotkeys)
+                    }
+
+                    if hasDuplicateHotkeys {
+                        Label(copy.duplicateShortcutMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 178)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.translationDirectionSection, systemImage: "arrow.left.arrow.right") {
+                    macOSSettingsRow(title: copy.translationTargetLabel) {
+                        Text(copy.translationTargetValue)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 272, alignment: .trailing)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.modelSection, systemImage: "cpu") {
+                    Picker(copy.apiModeLabel, selection: $draftTranslationAPIModeRawValue) {
+                        ForEach(GrammarSettings.APIMode.allCases) { mode in
+                            Text(localizedTitle(for: mode)).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    macOSSettingsRow(title: copy.modelLabel) {
+                        TextField(copy.modelLabel, text: $draftTranslationModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 272)
+                    }
+                    macOSSettingsRow(title: copy.baseURLLabel) {
+                        TextField(copy.baseURLLabel, text: $draftTranslationBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 272)
+                    }
+                    macOSSettingsRow(title: copy.apiKeyLabel) {
+                        SecureField(copy.apiKeyLabel, text: $draftTranslationAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 272)
+                    }
+                    macOSSettingsRow(title: copy.maxTokensLabel) {
+                        Text(copy.automaticMaxTokensLabel)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 272, alignment: .trailing)
+                    }
+                }
+
+                Divider()
+
+                macOSSection(title: copy.systemPromptSection, systemImage: "text.alignleft") {
+                    TextEditor(text: $draftTranslationPrompt)
+                        .font(.system(.body, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 190)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        }
+                }
+
+                Divider()
+
+                HStack {
+                    Spacer()
+                    Button(role: .destructive, action: resetTranslationSettings) {
+                        Label(copy.resetTranslationDefaultsButton, systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                }
+                .padding(.vertical, 22)
+            }
+            .padding(.horizontal, 30)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    private var macOSTranslationHistory: some View {
+        ScrollView {
+            if translationHistoryStore.entries.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 34, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                    Text(copy.emptyTranslationHistoryTitle)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 420)
+                .accessibilityIdentifier("settings.translationHistory.empty")
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(translationHistoryStore.entries) { entry in
+                        TranslationHistoryRow(entry: entry, copy: copy) {
+                            translationHistoryStore.delete(entry)
+                        }
+                    }
+                }
+                .padding(.vertical, 22)
+            }
+        }
+        .padding(.horizontal, 30)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        .accessibilityIdentifier("settings.translationHistory")
+    }
+
     private func macOSSection<Content: View>(
         title: String,
         systemImage: String,
@@ -1043,10 +1291,16 @@ struct SettingsView: View {
                 resetDefaultsButton: "Reset to Defaults",
                 speechTab: "Speech",
                 grammarTab: "Grammar",
-                historyTab: "History",
+                translationTab: "Translation",
+                historyTab: "Grammar History",
+                translationHistoryTab: "Translation History",
                 savedLabel: "All changes saved",
                 unsavedChangesLabel: "Unsaved changes",
                 grammarShortcutSection: "Grammar Shortcut",
+                translationShortcutSection: "Translation Shortcut",
+                translationDirectionSection: "Translation Direction",
+                translationTargetLabel: "Languages",
+                translationTargetValue: "English ↔ Simplified Chinese",
                 inputBadgeSection: "Input Badge",
                 showInputBadgeLabel: "Show next to editable text",
                 modelSection: "Model",
@@ -1058,16 +1312,19 @@ struct SettingsView: View {
                 automaticMaxTokensLabel: "Automatic",
                 systemPromptSection: "System Prompt",
                 resetGrammarDefaultsButton: "Reset Grammar Defaults",
-                duplicateShortcutMessage: "Speech and Grammar shortcuts must be different.",
+                resetTranslationDefaultsButton: "Reset Translation Defaults",
+                duplicateShortcutMessage: "Speech, Grammar, and Translation shortcuts must be different.",
                 emptyHistoryTitle: "No writing history yet",
+                emptyTranslationHistoryTitle: "No translation history yet",
                 originalTextTitle: "Original text",
                 historyResultsTitle: "View results",
-                historyTranslationTitle: "Translation",
+                translatedTextTitle: "Translation",
                 historyErrorsTitle: "What to fix",
                 historySuggestionsTitle: "Suggestions",
                 deleteHistoryButton: "Delete Entry",
                 clearHistoryButton: "Clear History",
                 clearHistoryConfirmationTitle: "Clear all writing history?",
+                clearTranslationHistoryConfirmationTitle: "Clear all translation history?",
                 clearHistoryConfirmationMessage: "This can't be undone.",
                 cancelButton: "Cancel",
                 okButton: "OK"
@@ -1103,10 +1360,16 @@ struct SettingsView: View {
                 resetDefaultsButton: "恢复默认设置",
                 speechTab: "朗读",
                 grammarTab: "语法",
-                historyTab: "历史记录",
+                translationTab: "翻译",
+                historyTab: "语法历史",
+                translationHistoryTab: "翻译历史",
                 savedLabel: "所有更改均已保存",
                 unsavedChangesLabel: "有未保存的更改",
                 grammarShortcutSection: "语法快捷键",
+                translationShortcutSection: "翻译快捷键",
+                translationDirectionSection: "翻译方向",
+                translationTargetLabel: "语言",
+                translationTargetValue: "英文 ↔ 简体中文",
                 inputBadgeSection: "输入图标",
                 showInputBadgeLabel: "在可编辑文本旁显示",
                 modelSection: "模型",
@@ -1118,16 +1381,19 @@ struct SettingsView: View {
                 automaticMaxTokensLabel: "自动",
                 systemPromptSection: "系统提示词",
                 resetGrammarDefaultsButton: "恢复语法默认设置",
-                duplicateShortcutMessage: "朗读和语法快捷键不能相同。",
+                resetTranslationDefaultsButton: "恢复翻译默认设置",
+                duplicateShortcutMessage: "朗读、语法和翻译快捷键不能相同。",
                 emptyHistoryTitle: "暂无写作历史记录",
+                emptyTranslationHistoryTitle: "暂无翻译历史记录",
                 originalTextTitle: "原始文本",
                 historyResultsTitle: "查看结果",
-                historyTranslationTitle: "翻译",
+                translatedTextTitle: "翻译结果",
                 historyErrorsTitle: "需要修改",
                 historySuggestionsTitle: "建议",
                 deleteHistoryButton: "删除记录",
                 clearHistoryButton: "清空历史",
                 clearHistoryConfirmationTitle: "清空所有写作历史？",
+                clearTranslationHistoryConfirmationTitle: "清空所有翻译历史？",
                 clearHistoryConfirmationMessage: "此操作无法撤销。",
                 cancelButton: "取消",
                 okButton: "好的"
@@ -1228,16 +1494,6 @@ private struct GrammarHistoryRow: View {
 
             DisclosureGroup(isExpanded: $isExpanded) {
                 VStack(alignment: .leading, spacing: 16) {
-                    if let translation = entry.translation {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Label(copy.historyTranslationTitle, systemImage: "character.book.closed")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.blue)
-                            Text(translation)
-                                .textSelection(.enabled)
-                        }
-                    }
-
                     if let errors = entry.errors {
                         VStack(alignment: .leading, spacing: 5) {
                             Label(copy.historyErrorsTitle, systemImage: "exclamationmark.triangle.fill")
@@ -1282,6 +1538,66 @@ private struct GrammarHistoryRow: View {
         .accessibilityIdentifier("settings.history.entry.\(entry.id.uuidString)")
     }
 }
+
+private struct TranslationHistoryRow: View {
+    let entry: TranslationHistoryEntry
+    let copy: SettingsCopy
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "character.book.closed")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30, height: 30)
+                    .background(Color.accentColor.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text(entry.timestamp, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(copy.deleteHistoryButton)
+                .accessibilityLabel(copy.deleteHistoryButton)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(copy.originalTextTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(entry.originalText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(copy.translatedTextTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
+                Text(entry.translatedText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+        }
+        .accessibilityIdentifier("settings.translationHistory.entry.\(entry.id.uuidString)")
+    }
+}
 #endif
 
 private struct SettingsCopy {
@@ -1314,10 +1630,16 @@ private struct SettingsCopy {
     let resetDefaultsButton: String
     let speechTab: String
     let grammarTab: String
+    let translationTab: String
     let historyTab: String
+    let translationHistoryTab: String
     let savedLabel: String
     let unsavedChangesLabel: String
     let grammarShortcutSection: String
+    let translationShortcutSection: String
+    let translationDirectionSection: String
+    let translationTargetLabel: String
+    let translationTargetValue: String
     let inputBadgeSection: String
     let showInputBadgeLabel: String
     let modelSection: String
@@ -1329,16 +1651,19 @@ private struct SettingsCopy {
     let automaticMaxTokensLabel: String
     let systemPromptSection: String
     let resetGrammarDefaultsButton: String
+    let resetTranslationDefaultsButton: String
     let duplicateShortcutMessage: String
     let emptyHistoryTitle: String
+    let emptyTranslationHistoryTitle: String
     let originalTextTitle: String
     let historyResultsTitle: String
-    let historyTranslationTitle: String
+    let translatedTextTitle: String
     let historyErrorsTitle: String
     let historySuggestionsTitle: String
     let deleteHistoryButton: String
     let clearHistoryButton: String
     let clearHistoryConfirmationTitle: String
+    let clearTranslationHistoryConfirmationTitle: String
     let clearHistoryConfirmationMessage: String
     let cancelButton: String
     let okButton: String

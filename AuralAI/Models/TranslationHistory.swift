@@ -1,53 +1,52 @@
 //
-//  GrammarHistory.swift
+//  TranslationHistory.swift
 //  AuralAI
 //
 
 import Combine
 import Foundation
 
-struct GrammarHistoryEntry: Codable, Equatable, Identifiable {
+struct TranslationResult: Codable, Equatable {
+    let originalText: String
+    let translatedText: String
+}
+
+struct TranslationHistoryEntry: Codable, Equatable, Identifiable {
     let id: UUID
     let originalText: String
-    let errors: String?
-    let options: [String]
+    let translatedText: String
     let timestamp: Date
 
-    init(
-        id: UUID = UUID(),
-        originalText: String,
-        response: GrammarOptimizationResult,
-        timestamp: Date = Date()
-    ) {
+    init(id: UUID = UUID(), result: TranslationResult, timestamp: Date = Date()) {
         self.id = id
-        self.originalText = originalText
-        errors = response.errors
-        options = response.options
+        originalText = result.originalText
+        translatedText = result.translatedText
         self.timestamp = timestamp
+    }
+
+    var result: TranslationResult {
+        TranslationResult(originalText: originalText, translatedText: translatedText)
     }
 }
 
-final class GrammarHistoryStore: ObservableObject {
-    static let shared = GrammarHistoryStore()
+final class TranslationHistoryStore: ObservableObject {
+    static let shared = TranslationHistoryStore()
 
-    @Published private(set) var entries: [GrammarHistoryEntry] = []
+    @Published private(set) var entries: [TranslationHistoryEntry] = []
 
     private let fileURL: URL
 
-    init(fileURL: URL = GrammarHistoryStore.defaultFileURL()) {
+    init(fileURL: URL = TranslationHistoryStore.defaultFileURL()) {
         self.fileURL = fileURL
         entries = loadEntries()
     }
 
-    func add(originalText: String, response: GrammarOptimizationResult) {
-        entries.insert(
-            GrammarHistoryEntry(originalText: originalText, response: response),
-            at: 0
-        )
+    func add(_ result: TranslationResult) {
+        entries.insert(TranslationHistoryEntry(result: result), at: 0)
         saveEntries()
     }
 
-    func response(matching originalText: String) -> GrammarOptimizationResult? {
+    func result(matching originalText: String) -> TranslationResult? {
         let trimmedText = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty,
               let entry = entries.first(where: {
@@ -55,14 +54,10 @@ final class GrammarHistoryStore: ObservableObject {
               }) else {
             return nil
         }
-
-        return GrammarOptimizationResult(
-            errors: entry.errors,
-            options: entry.options
-        )
+        return entry.result
     }
 
-    func delete(_ entry: GrammarHistoryEntry) {
+    func delete(_ entry: TranslationHistoryEntry) {
         entries.removeAll { $0.id == entry.id }
         saveEntries()
     }
@@ -73,19 +68,18 @@ final class GrammarHistoryStore: ObservableObject {
     }
 
     #if DEBUG
-    func usePreviewEntries(_ previewEntries: [GrammarHistoryEntry]) {
+    func usePreviewEntries(_ previewEntries: [TranslationHistoryEntry]) {
         entries = previewEntries
     }
     #endif
 
-    private func loadEntries() -> [GrammarHistoryEntry] {
+    private func loadEntries() -> [TranslationHistoryEntry] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
-
         do {
-            return try JSONDecoder().decode([GrammarHistoryEntry].self, from: data)
+            return try JSONDecoder().decode([TranslationHistoryEntry].self, from: data)
                 .sorted { $0.timestamp > $1.timestamp }
         } catch {
-            print("Could not load grammar history: \(error.localizedDescription)")
+            print("Could not load translation history: \(error.localizedDescription)")
             return []
         }
     }
@@ -99,7 +93,7 @@ final class GrammarHistoryStore: ObservableObject {
             let data = try JSONEncoder().encode(entries)
             try data.write(to: fileURL, options: .atomic)
         } catch {
-            print("Could not save grammar history: \(error.localizedDescription)")
+            print("Could not save translation history: \(error.localizedDescription)")
         }
     }
 
@@ -113,6 +107,6 @@ final class GrammarHistoryStore: ObservableObject {
 
         return applicationSupportURL
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("GrammarOptimizationHistory.json")
+            .appendingPathComponent("TranslationHistory.json")
     }
 }

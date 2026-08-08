@@ -28,10 +28,10 @@ private class GrammarClickablePanel: NSPanel {
 }
 
 private final class GrammarResultsModel: ObservableObject {
-    @Published var response: GrammarAIResponse
+    @Published var response: GrammarOptimizationResult
     @Published var isStreaming: Bool
 
-    init(response: GrammarAIResponse, isStreaming: Bool) {
+    init(response: GrammarOptimizationResult, isStreaming: Bool) {
         self.response = response
         self.isStreaming = isStreaming
     }
@@ -94,12 +94,12 @@ final class GrammarFloatingIndicator {
         }
     }
 
-    func showResults(response: GrammarAIResponse, onSelect: @escaping (String) -> Void) {
+    func showResults(response: GrammarOptimizationResult, onSelect: @escaping (String) -> Void) {
         showResults(response: response, at: nil, onSelect: onSelect)
     }
 
     func showResults(
-        response: GrammarAIResponse,
+        response: GrammarOptimizationResult,
         at previewAnchor: NSPoint?,
         onSelect: @escaping (String) -> Void
     ) {
@@ -112,7 +112,7 @@ final class GrammarFloatingIndicator {
     }
 
     func showResults(
-        response: GrammarAIResponse,
+        response: GrammarOptimizationResult,
         at previewAnchor: NSPoint?,
         onSelect: @escaping (String) -> Void,
         onUserDismiss: (() -> Void)?,
@@ -129,7 +129,7 @@ final class GrammarFloatingIndicator {
     }
 
     func showStreamingResults(
-        response: GrammarAIResponse,
+        response: GrammarOptimizationResult,
         onSelect: @escaping (String) -> Void,
         onUserDismiss: @escaping () -> Void
     ) {
@@ -142,7 +142,7 @@ final class GrammarFloatingIndicator {
     }
 
     func showStreamingResults(
-        response: GrammarAIResponse,
+        response: GrammarOptimizationResult,
         at previewAnchor: NSPoint?,
         onSelect: @escaping (String) -> Void,
         onUserDismiss: @escaping () -> Void,
@@ -158,7 +158,7 @@ final class GrammarFloatingIndicator {
         )
     }
 
-    func updateResults(response: GrammarAIResponse, isStreaming: Bool) {
+    func updateResults(response: GrammarOptimizationResult, isStreaming: Bool) {
         DispatchQueue.main.async {
             self.resultsModel?.response = response
             self.resultsModel?.isStreaming = isStreaming
@@ -166,7 +166,7 @@ final class GrammarFloatingIndicator {
     }
 
     private func showResults(
-        response: GrammarAIResponse,
+        response: GrammarOptimizationResult,
         at previewAnchor: NSPoint?,
         isStreaming: Bool,
         onSelect: @escaping (String) -> Void,
@@ -496,15 +496,6 @@ private struct GrammarResultsPopupView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if let translation = model.response.translation {
-                        GrammarResultSection(
-                            title: copy.translationTitle,
-                            systemImage: "character.book.closed",
-                            color: .blue,
-                            text: translation
-                        )
-                    }
-
                     if let errors = model.response.errors {
                         GrammarResultSection(
                             title: copy.errorsTitle,
@@ -628,7 +619,6 @@ private struct GrammarPopupCopy {
     let appliedText: String
     let errorText: String
     let resultsTitle: String
-    let translationTitle: String
     let errorsTitle: String
     let chooseVersionTitle: String
     let closeLabel: String
@@ -647,7 +637,6 @@ private struct GrammarPopupCopy {
                 appliedText: "Text replaced",
                 errorText: "Couldn't improve text",
                 resultsTitle: "Writing suggestions",
-                translationTitle: "Translation",
                 errorsTitle: "What to fix",
                 chooseVersionTitle: "Choose a version",
                 closeLabel: "Close",
@@ -664,7 +653,6 @@ private struct GrammarPopupCopy {
                 appliedText: "文本已替换",
                 errorText: "无法优化文本",
                 resultsTitle: "写作建议",
-                translationTitle: "翻译",
                 errorsTitle: "需要修改",
                 chooseVersionTitle: "选择一个版本",
                 closeLabel: "关闭",

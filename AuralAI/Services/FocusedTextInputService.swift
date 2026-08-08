@@ -72,6 +72,15 @@ final class FocusedTextInputService {
         return currentInput
     }
 
+    func captureCurrentSelection() -> FocusedTextSelection? {
+        guard !isPaused else { return nil }
+        refresh()
+        if let currentInput, let selection = readSelection(from: currentInput) {
+            return selection
+        }
+        return currentExternalSelection
+    }
+
     func pause() {
         isPaused = true
     }
