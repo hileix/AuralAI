@@ -20,7 +20,7 @@ private final class GrammarInputBadgePanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
         collectionBehavior = [.canJoinAllSpaces, .stationary]
@@ -154,45 +154,60 @@ private struct GrammarInputBadgeView: View {
     let isLoading: Bool
     let onClick: () -> Void
 
+    @State private var isHovering = false
+    @State private var loadingPhase: CGFloat = 0
+
     private var label: String {
         SpeechSettings.shared.language == .chinese ? "使用 AuralAI 优化此输入框" : "Improve this field with AuralAI"
     }
 
     var body: some View {
-        Button(action: onClick) {
+        Button {
+            guard !isLoading else { return }
+            onClick()
+        } label: {
             ZStack {
-                Circle()
-                    .fill(Color(red: 0.08, green: 0.48, blue: 0.94))
-
-                Image(systemName: "text.badge.checkmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                Image("AppLogo")
+                    .resizable()
+                    .interpolation(.high)
 
                 if isLoading {
-                    Circle()
-                        .fill(.black.opacity(0.2))
-
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
+                    LinearGradient(
+                        colors: [
+                            .clear,
+                            .white.opacity(0.42),
+                            .clear
+                        ],
+                        startPoint: UnitPoint(x: loadingPhase - 0.62, y: 0.15),
+                        endPoint: UnitPoint(x: loadingPhase - 0.08, y: 0.85)
+                    )
+                    .blendMode(.screen)
                 }
             }
-                .frame(width: 28, height: 28)
-                .overlay {
-                    Circle()
-                        .stroke(.white.opacity(0.28), lineWidth: 1)
-                }
-                .padding(3)
-                .background(.regularMaterial)
-                .clipShape(Circle())
-                .overlay {
-                    Circle()
-                        .stroke(Color.primary.opacity(0.14), lineWidth: 1)
-                }
+            .frame(width: 28, height: 28)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .shadow(
+                color: .black.opacity(isHovering && !isLoading ? 0.3 : 0.22),
+                radius: isHovering && !isLoading ? 4 : 3,
+                y: isHovering && !isLoading ? 2 : 1
+            )
+            .scaleEffect(isHovering && !isLoading ? 1.04 : 1)
+            .animation(.easeOut(duration: 0.12), value: isHovering)
         }
         .buttonStyle(.plain)
-        .disabled(isLoading)
-        .contentShape(Circle())
+        .allowsHitTesting(!isLoading)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onHover { isHovering = $0 }
+        .onAppear {
+            guard isLoading else { return }
+            loadingPhase = 1
+        }
+        .animation(
+            isLoading
+                ? .linear(duration: 1.25).repeatForever(autoreverses: true)
+                : .default,
+            value: loadingPhase
+        )
         .help(label)
         .accessibilityLabel(label)
         .accessibilityIdentifier("grammar.input.badge")
